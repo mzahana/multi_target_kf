@@ -9,7 +9,7 @@
 
     <!-- Multi-target KF tracker-->
     <node pkg="multi_target_kf" name="kf_tracker_node" type="kf_tracker_node" output="screen" clear_params="true" required="$(eval not respawn)" respawn="$(arg respawn)">
-        <remap from="measurement/pose_array" to="drone_detections"/>
+        <!-- <remap from="measurement/pose_array" to="drone_detections"/> -->
         <rosparam command="load" file="$(arg config_file)"/>
     </node>
     

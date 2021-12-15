@@ -222,7 +222,7 @@ void KFTracker::initKF(void)
    last_measurement_t_ = ros::Time::now();
 
 
-   ROS_INFO("KF is initialized.");
+   ROS_INFO("KF is initialized. Waiting for measurements ...");
 
    return;
 }
