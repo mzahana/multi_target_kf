@@ -1,0 +1,27 @@
+# Rate of prediction step
+dt_pred: 0.05
+# Standard deviation of the process noise
+q_std: 1.0
+# Standard deviation of position process noise
+q_pos_std: 1.0
+# Standard deviation of velocity process noise
+q_vel_std: 1.0
+# Standard deviation of the observation noise
+r_std: 0.5
+print_debug_msg: false
+# Provide estimate w.r.t this frame
+tracking_frame: 'map'
+# Topic name of the tag detections
+apriltags_topic: '/tag_detections'
+# Frame name of the detected target
+target_frameid: 'tag'
+# Get target measurements from TF tree
+listen_tf: true
+# Maximum uncertainty before rejecting a track [m^3] 
+V_max: 30.0
+# Minimum uncertainty for confirming a track [m^3]
+V_certain: 5.0
+# Minimum number of measurements to confirm a track
+N_meas: 10
+# Measurement association log-likelihood threshold
+l_threshold: -5.0
