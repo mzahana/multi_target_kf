@@ -642,10 +642,16 @@ void KFTracker::publishTracks(void)
       track_msg.header.stamp = (*it).current_state.time_stamp;
       track_msg.header.frame_id = tracking_frame_;
       track_msg.id = (*it).id;
+      track_msg.n = (*it).n;
+
       track_msg.pose.pose.position.x = (*it).current_state.x[0];
       track_msg.pose.pose.position.y = (*it).current_state.x[1];
       track_msg.pose.pose.position.z = (*it).current_state.x[2];
-      track_msg.n = (*it).n;
+
+      track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+      track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+      track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+      
 
       tracks_msg.tracks.push_back(track_msg);
    }
