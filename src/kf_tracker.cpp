@@ -64,6 +64,7 @@ debug_(false)
    nh_private_.param<double>("q_std", q_, 0.1);
    nh_private_.param<double>("q_pos_std", q_pos_std_, 0.1);
    nh_private_.param<double>("q_vel_std", q_vel_std_, 0.01);
+   nh_private_.param<double>("q_acc_std", q_acc_std_, 0.01);
    nh_private_.param<double>("r_std", r_, 0.01);
    nh_private_.param<double>("V_max", V_max_, 20.0);
    nh_private_.param<double>("V_certain", V_certain_, 1.0);
@@ -106,8 +107,9 @@ void KFTracker::setQ(void)
 {
    // This is for constant velocity model \in R^3
 
-   Q_.resize(6,6);
-   Q_ = Eigen::MatrixXd::Zero(6,6);
+   // Q_.resize(6,6);
+   // Q_ = Eigen::MatrixXd::Zero(6,6);
+
    // Q_(0,0) = 1./3.*dt_pred_*dt_pred_*dt_pred_; // x with x
    // Q_(0,3) = 0.5*dt_pred_*dt_pred_; // x with vx
    // Q_(1,1) = 1./3.*dt_pred_*dt_pred_*dt_pred_; // y with y
@@ -124,13 +126,22 @@ void KFTracker::setQ(void)
    // Q_ = q_*q_*Q_; // multiply by process noise variance
 
     /************* The following is based on Saska's paper ********/
-   Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
-   Qp = dt_pred_*q_pos_std_*q_pos_std_*Qp;
-   Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
-   Qv = dt_pred_*q_vel_std_*q_vel_std_*Qv;
+   // Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
+   // Qp = dt_pred_*q_pos_std_*q_pos_std_*Qp;
+   // Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
+   // Qv = dt_pred_*q_vel_std_*q_vel_std_*Qv;
 
-   Q_.block(0,0,3,3) = Qp;
-   Q_.block(3,3,3,3) = Qv;
+   // Q_.block(0,0,3,3) = Qp;
+   // Q_.block(3,3,3,3) = Qv;
+
+   // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   // state: [x,y,z, vx,vy,vz, ax,ay,az]
+   Q_.resize(NUM_OF_STATES,NUM_OF_STATES);
+   Q_ = Eigen::MatrixXd::Zero(NUM_OF_STATES,NUM_OF_STATES);
+   Q_.block(0,0,3,3) = q_pos_std_*Eigen::MatrixXd::Identity(3,3); // position block
+   Q_.block(3,3,3,3) = q_vel_std_*Eigen::MatrixXd::Identity(3,3); // velocity block
+   Q_.block(6,6,3,3) = q_acc_std_*Eigen::MatrixXd::Identity(3,3); // acceleration block
 
 }
 
@@ -138,7 +149,8 @@ Eigen::MatrixXd KFTracker::setQ(double dt)
 {
    // This is for constant velocity model \in R^3
 
-   Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(6,6);
+   Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(NUM_OF_STATES,NUM_OF_STATES);
+
    // Q(0,0) = 1./3.*dt*dt*dt; // x with x
    // Q(0,3) = 0.5*dt*dt; // x with vx
    // Q(1,1) = 1./3.*dt*dt*dt; // y with y
@@ -155,13 +167,20 @@ Eigen::MatrixXd KFTracker::setQ(double dt)
    // Q = q_*q_*Q; // multiply by process noise variance
 
    /************* The following is based on Saska's paper ********/
-   Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
-   Qp = dt*q_pos_std_*q_pos_std_*Qp;
-   Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
-   Qv = dt*q_vel_std_*q_vel_std_*Qv;
+   // Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
+   // Qp = dt*q_pos_std_*q_pos_std_*Qp;
+   // Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
+   // Qv = dt*q_vel_std_*q_vel_std_*Qv;
 
-   Q.block(0,0,3,3) = Qp;
-   Q.block(3,3,3,3) = Qv;
+   // Q.block(0,0,3,3) = Qp;
+   // Q.block(3,3,3,3) = Qv;
+
+   // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   // state: [x,y,z, vx,vy,vz, ax,ay,az]
+   Q.block(0,0,3,3) = q_pos_std_*Eigen::MatrixXd::Identity(3,3); // position block
+   Q.block(3,3,3,3) = q_vel_std_*Eigen::MatrixXd::Identity(3,3); // velocity block
+   Q.block(6,6,3,3) = q_acc_std_*Eigen::MatrixXd::Identity(3,3); // acceleration block
 
 
    return Q;
@@ -169,26 +188,66 @@ Eigen::MatrixXd KFTracker::setQ(double dt)
 
 void KFTracker::setR(void)
 {
-   R_.resize(3,3);
-   R_ = Eigen::MatrixXd::Identity(3,3);
-   R_ = r_*r_*R_; // multiply by observation noise variance
+   R_.resize(NUM_OF_MEASUREMENTS,NUM_OF_MEASUREMENTS);
+   R_ = Eigen::MatrixXd::Identity(NUM_OF_MEASUREMENTS,NUM_OF_MEASUREMENTS);
+   // R_ = r_*r_*R_; // multiply by observation noise variance
+
+   // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   R_ = r_*R_; // multiply by observation noise variance
 }
 
 void KFTracker::setF(void)
 {
    // This is for constant velocity model \in R^3
 
-   F_.resize(6,6);
-   F_ = Eigen::MatrixXd::Identity(6,6);
-   F_(0,3) = dt_pred_; // x - vx
-   F_(1,4) = dt_pred_; // y - vy
-   F_(2,5) = dt_pred_; // z - vz
+   // F_.resize(6,6);
+   // F_ = Eigen::MatrixXd::Identity(6,6);
+   // F_(0,3) = dt_pred_; // x - vx
+   // F_(1,4) = dt_pred_; // y - vy
+   // F_(2,5) = dt_pred_; // z - vz
+
+   // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   F_.resize(NUM_OF_STATES,NUM_OF_STATES);
+   F_ = Eigen::MatrixXd::Identity(NUM_OF_STATES,NUM_OF_STATES);
+   F_.block(0,3,3,3)= dt_pred_*Eigen::MatrixXd::Identity(3,3);
+   F_.block(0,6,3,3)= (dt_pred_*dt_pred_/2.0)*Eigen::MatrixXd::Identity(3,3);
+   F_.block(3,6,3,3)= dt_pred_*Eigen::MatrixXd::Identity(3,3);
+}
+
+Eigen::MatrixXd KFTracker::setF(int dt)
+{
+   // This is for constant velocity model \in R^3
+
+   // F_.resize(6,6);
+   // F_ = Eigen::MatrixXd::Identity(6,6);
+   // F_(0,3) = dt_pred_; // x - vx
+   // F_(1,4) = dt_pred_; // y - vy
+   // F_(2,5) = dt_pred_; // z - vz
+
+   // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   Eigen::MatrixXd F = Eigen::MatrixXd::Identity(NUM_OF_STATES,NUM_OF_STATES);
+   F.block(0,3,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
+   F.block(0,6,3,3)= (dt*dt/2.0)*Eigen::MatrixXd::Identity(3,3);
+   F.block(3,6,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
+
+   return F;
 }
 
 void KFTracker::setH(void)
 {
-   H_.resize(3,6);
-   H_ = Eigen::MatrixXd::Zero(3,6);
+   // H_.resize(3,6);
+   // H_ = Eigen::MatrixXd::Zero(3,6);
+   // H_(0,0) = 1.0; // observing x
+   // H_(1,1) = 1.0; // observing y
+   // H_(2,2) = 1.0; // observing z
+
+   // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   H_.resize(NUM_OF_MEASUREMENTS,NUM_OF_STATES);
+   H_ = Eigen::MatrixXd::Zero(NUM_OF_MEASUREMENTS,NUM_OF_STATES);
    H_(0,0) = 1.0; // observing x
    H_(1,1) = 1.0; // observing y
    H_(2,2) = 1.0; // observing z
@@ -203,10 +262,10 @@ void KFTracker::initKF(void)
 {
    // initial state KF estimate
    kf_state_pred_.time_stamp = ros::Time::now();
-   kf_state_pred_.x = Eigen::MatrixXd::Zero(6,1); // position and velocity \in R^3
-   kf_state_pred_.x(3,0) = 0.0000001;
-   kf_state_pred_.x(4,0) = 0.0000001;
-   kf_state_pred_.x(5,0) = 0.0000001;
+   kf_state_pred_.x = Eigen::MatrixXd::Zero(NUM_OF_STATES,1); 
+   // kf_state_pred_.x(3,0) = 0.0000001;
+   // kf_state_pred_.x(4,0) = 0.0000001;
+   // kf_state_pred_.x(5,0) = 0.0000001;
 
    setQ(); // Initialize process noise covariance
    initP();
@@ -217,8 +276,8 @@ void KFTracker::initKF(void)
    state_buffer_.clear(); // Clear state buffer
 
    z_meas_.time_stamp = ros::Time::now();
-   z_meas_.z.resize(3,1); 
-   z_meas_.z = Eigen::MatrixXd::Zero(3,1); //  measured position \in R^3
+   z_meas_.z.resize(NUM_OF_MEASUREMENTS,1); 
+   z_meas_.z = Eigen::MatrixXd::Zero(NUM_OF_MEASUREMENTS,1); //  measured position \in R^3
    z_last_meas_ = z_meas_;
 
    last_measurement_t_ = ros::Time::now();
@@ -299,10 +358,8 @@ kf_state KFTracker::predict(kf_state x, double dt)
       ROS_ERROR("[KFTracker::predict] dt <0 !. Skipping state prediciton");
       return x;
    }
-   Eigen::MatrixXd F = Eigen::MatrixXd::Identity(6,6);
-   F(0,3) = dt; // x - vx
-   F(1,4) = dt; // y - vy
-   F(2,5) = dt; // z - vz
+
+   auto F = setF(dt);
 
    auto state = x;
 
@@ -457,9 +514,10 @@ void KFTracker::updateTracks(ros::Time t)
       for (auto it = z.begin(); it != z.end(); it++)
       {
          kf_state state;
-         state.x = Eigen::MatrixXd::Zero(6,1);
-         state.x.block(0,0,3,1) = (*it).z;
+         state.x = Eigen::MatrixXd::Zero(NUM_OF_STATES,1);
+         state.x.block(0,0,NUM_OF_MEASUREMENTS,1) = (*it).z;
          state.x(3) = 0.000001; state.x(4) = 0.000001; state.x(5) = 0.000001;
+         state.x(6) = 0.000001; state.x(7) = 0.000001; state.x(8) = 0.000001;
          state.P = Q_;
          state.P.block(0,0,3,3) = R_;
          state.time_stamp = (*it).time_stamp;
@@ -528,7 +586,7 @@ void KFTracker::poseArrayCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
    {
       sensor_measurement z;
       z.time_stamp = msg->header.stamp;
-      z.z = Eigen::MatrixXd::Zero(3,1);
+      z.z = Eigen::MatrixXd::Zero(NUM_OF_MEASUREMENTS,1);
       z.z(0) = (*it).position.x;
       z.z(1) = (*it).position.y;
       z.z(2) = (*it).position.z;
@@ -654,6 +712,10 @@ void KFTracker::publishTracks(void)
       track_msg.twist.twist.linear.x = (*it).current_state.x[3];
       track_msg.twist.twist.linear.y = (*it).current_state.x[4];
       track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+
+      track_msg.accel.accel.linear.x = (*it).current_state.x[6];
+      track_msg.accel.accel.linear.y = (*it).current_state.x[7];
+      track_msg.accel.accel.linear.z = (*it).current_state.x[8];
       
 
       tracks_msg.tracks.push_back(track_msg);
@@ -707,10 +769,13 @@ void KFTracker::initTracks(void)
       kf_state state;
       state.time_stamp = z[i].time_stamp;
       state.x = Eigen::MatrixXd::Zero(6,1);
-      state.x.block(0,0,3,1) = z[i].z; // 3D position
+      state.x.block(0,0,NUM_OF_MEASUREMENTS,1) = z[i].z; // 3D position
       state.x(3) = 0.000001; // vx
       state.x(4) = 0.000001; // vy
       state.x(5) = 0.000001; // vz
+      state.x(6) = 0.000001; // ax
+      state.x(7) = 0.000001; // ay
+      state.x(8) = 0.000001; // az
       state.P = Q_;
       state.P.block(0,0,3,3) = R_;
 

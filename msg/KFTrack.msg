@@ -11,3 +11,5 @@ geometry_msgs/PoseWithCovariance pose
 
 # Track twist
 geometry_msgs/TwistWithCovariance twist
+
+geometry_msgs/AccelWithCovariance accel

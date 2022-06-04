@@ -110,6 +110,8 @@ private:
    int N_meas_; /**< minimum number of measurements to accept a track and add it to certain_tracks_. */
    double l_threshold_; /**< measurement association log-likelihood threshold. */
 
+   const int NUM_OF_STATES=9; /**< number of states */
+   const int NUM_OF_MEASUREMENTS=3; /**< Number of measurements */
    kf_state kf_state_pred_; /**< KF predicted state and covariance */
    Eigen::VectorXd x_pred_; /**< State estimate. 6x1 vector. 3D position and velocity. */
    Eigen::MatrixXd P_pred_; /**< Updated (a posteriori) estimate covariance. */
@@ -122,6 +124,7 @@ private:
    double q_; /**< standard deviation of process noise. */
    double q_pos_std_; /**< position standard deviation of process noise. */
    double q_vel_std_; /**< velocity standard deviation of process noise. */
+   double q_acc_std_; /**< Acceleration standard deviation of process noise. */
    double r_; /**< standard deviation of observation noise. */
    double dt_pred_; /**< KF prediction sampling time in seconds. */
    bool is_state_initialzed_; /**< flag to start state prediction. Initialized by 1st measurement. */
@@ -155,6 +158,12 @@ private:
     * @brief Computes discrete transition matrix F_ based on sampling time dt_pred_.
     */
    void setF(void);
+
+   /**
+    * @brief Computes discrete transition matrix F_ based on specific sampling time dt.
+    * @param dt sampling time >0 in seconds
+    */
+   Eigen::MatrixXd setF(int dt);
 
    /**
     * @brief Computes discrete observation matrix H_. Observations are positions x,y,z.
