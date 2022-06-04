@@ -25,3 +25,6 @@ V_certain: 5.0
 N_meas: 10
 # Measurement association log-likelihood threshold
 l_threshold: -5.0
+
+# False: Doesn't consider measurement track ID in measurement-state association 
+use_track_id: false

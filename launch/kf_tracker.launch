@@ -2,14 +2,16 @@
     Copyright 2020, Mohamed Abdelkader
     Author : Mohamed Abdelkader, mohamedashraf123@gmail.com
 -->
+
 <launch>
     <arg name="config_file" default="$(find multi_target_kf)/config/kf_params.yaml"/>
+    <arg name="detections_topic" default="drone_detections"/>
 
     <arg name="respawn" default="false"/>"
 
     <!-- Multi-target KF tracker-->
     <node pkg="multi_target_kf" name="kf_tracker_node" type="kf_tracker_node" output="screen" clear_params="true" required="$(eval not respawn)" respawn="$(arg respawn)">
-        <!-- <remap from="measurement/pose_array" to="drone_detections"/> -->
+        <remap from="measurement/pose_array" to="$(arg detections_topic)"/>
         <rosparam command="load" file="$(arg config_file)"/>
     </node>
     

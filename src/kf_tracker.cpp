@@ -57,6 +57,7 @@ target_frameid_("tag"),
 listen_tf_(true),
 do_update_step_(true),
 measurement_off_time_(2.0),
+use_track_id_(false),
 debug_(false)
 {
    nh_private_.param<double>("dt_pred", dt_pred_, 0.05);
@@ -79,6 +80,7 @@ debug_(false)
    nh_private.param<std::string>("apriltags_topic", apriltags_topic_, "tag_detections");
    nh_private.param<std::string>("target_frameid", target_frameid_, "tag");
    nh_private.param<bool>("listen_tf", listen_tf_, true);
+   nh_private.param<bool>("use_track_id", use_track_id_, true);
    
 
    initKF();
@@ -405,8 +407,9 @@ void KFTracker::updateTracks(ros::Time t)
          for(int k=0; k < z.size(); k++)
          {
             auto LL = logLikelihood((*it).current_state, z[k]);
-            if (LL > max_LL && z[k].id == (*it).id )
+            if (LL > max_LL )
             {
+               if( use_track_id_ && z[k].id != (*it).id ) continue;
                max_LL = LL;
                best_m = z[k];
                m_index = k;

@@ -135,6 +135,7 @@ private:
    std::string target_frameid_; /**< Target frame name which will be post-fixed by the target unique number e.g. "tag", post-fixed will be like "tag1" */
    tf::TransformListener tf_listener_; /**< TF listener for measurements */
    bool listen_tf_; /**< listens to TF to find transofrms of received measurements w.r.t. tracking_frame_ */
+   bool use_track_id_; /**< True: does not consider track ID in measurement-state association */
 
    bool debug_; /**< for printing debug message */
 
