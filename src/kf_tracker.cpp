@@ -178,9 +178,9 @@ Eigen::MatrixXd KFTracker::setQ(double dt)
    // The following is based on this thesis:
    // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
    // state: [x,y,z, vx,vy,vz, ax,ay,az]
-   Q.block(0,0,3,3) = q_pos_std_*Eigen::MatrixXd::Identity(3,3); // position block
-   Q.block(3,3,3,3) = q_vel_std_*Eigen::MatrixXd::Identity(3,3); // velocity block
-   Q.block(6,6,3,3) = q_acc_std_*Eigen::MatrixXd::Identity(3,3); // acceleration block
+   Q.block(0,0,3,3) = q_pos_std_*q_pos_std_*Eigen::MatrixXd::Identity(3,3); // position block
+   Q.block(3,3,3,3) = q_vel_std_*q_vel_std_*Eigen::MatrixXd::Identity(3,3); // velocity block
+   Q.block(6,6,3,3) = q_acc_std_*q_acc_std_*Eigen::MatrixXd::Identity(3,3); // acceleration block
 
 
    return Q;
@@ -194,7 +194,7 @@ void KFTracker::setR(void)
 
    // The following is based on this thesis:
    // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   R_ = r_*R_; // multiply by observation noise variance
+   R_ = r_*r_*R_; // multiply by observation noise variance
 }
 
 void KFTracker::setF(void)

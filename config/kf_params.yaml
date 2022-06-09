@@ -3,13 +3,13 @@ dt_pred: 0.01
 # Standard deviation of the process noise
 q_std: 1.0
 # Standard deviation of position process noise
-q_pos_std: 0.1
+q_pos_std: 1.0
 # Standard deviation of velocity process noise
-q_vel_std: 0.1
+q_vel_std: 1.0
 # Standard deviation of acceleration process noise
-q_acc_std: 0.1
+q_acc_std: 1.0
 # Standard deviation of the observation noise
-r_std: 0.1
+r_std: 5.0
 print_debug_msg: false
 # Provide estimate w.r.t this frame
 tracking_frame: 'interceptor_odom'
