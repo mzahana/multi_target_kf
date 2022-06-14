@@ -288,6 +288,7 @@ void KFTracker::initKF(void)
    return;
 }
 
+//****************** To be removed
 void KFTracker::updateStateBuffer(void)
 {
    kf_state kfstate;

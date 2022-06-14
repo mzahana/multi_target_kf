@@ -52,8 +52,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <math.h>  // log
 
+#include "multi_target_kf/models.h"
+
 //using namespace std;
 // using namespace Eigen;
+
+enum MODEL : unsigned char
+{
+   CONSTANT_ACCEL = 0, DUBINS = 1
+};
+
 
 /**
  * Structure to store the current stamped KF prediction
