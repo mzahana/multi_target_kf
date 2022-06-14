@@ -38,7 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Dense>
 
-
 /**
  * Structure to store the current stamped KF prediction
  */
@@ -247,9 +246,15 @@ F(Eigen::VectorXd x)
  * @brief Sets transition jacobian matrix F_
  * @param M Matrix of size (NUM_STATES, NUM_STATES)
  */
-void
+bool
 F(Eigen::MatrixXd M){
-    F_=M;
+    if (M.cols()==NUM_STATES && M.rows()==NUM_STATES){
+        F_.resize(NUM_STATES,NUM_STATES);
+        F_=M;
+        return true;
+    }
+    else    return false;
+    
 }
 
 /**
@@ -269,6 +274,7 @@ F()
 Eigen::MatrixXd
 H(Eigen::VectorXd x)
 {
+    H_.resize(NUM_MEASUREMENTS, NUM_STATES);
     H_ = Eigen::MatrixXd::Identity(NUM_MEASUREMENTS, NUM_STATES);
     return H_;
 }
@@ -279,6 +285,7 @@ H(Eigen::VectorXd x)
 Eigen::MatrixXd
 H()
 {
+    H_.resize(NUM_MEASUREMENTS, NUM_STATES);
     H_ = Eigen::MatrixXd::Identity(NUM_MEASUREMENTS, NUM_STATES);
     return H_;
 }
@@ -299,6 +306,7 @@ bool
 Q(Eigen::MatrixXd M)
 {
     if (M.cols() == NUM_STATES && M.rows()==NUM_STATES){
+        Q_.resize(NUM_STATES,NUM_STATES);
         Q_=M;
         return true;
     }
@@ -322,7 +330,32 @@ bool
 R(Eigen::MatrixXd M)
 {
     if (M.rows() == NUM_MEASUREMENTS && M.cols() == NUM_MEASUREMENTS){
+        R_.resize(NUM_MEASUREMENTS,NUM_MEASUREMENTS);
         R_ = M;
+        return true;
+    }
+    else
+        return false;
+}
+
+/**
+ * @brief Returns P_
+ */
+Eigen::MatrixXd
+P(void)
+{
+    return P_;
+}
+
+/**
+ * @brief Sets P_
+ */
+bool
+P(Eigen::MatrixXd M)
+{
+    if (M.rows() == NUM_STATES && M.cols() == NUM_STATES){
+        P_.resize(NUM_STATES,NUM_STATES);
+        P_ = M;
         return true;
     }
     else
@@ -333,7 +366,7 @@ R(Eigen::MatrixXd M)
  * @brief Returns current state vectror x_
  */
 Eigen::VectorXd
-x(){
+x(void){
     return x_;
 }
 
@@ -350,15 +383,21 @@ x(Eigen::VectorXd v){
         return false;
 }
 
+kf_state
+state(void){
+    return state_;
+}
+
 /**
  * @brief Estimates full state observation from two position vectors
  * @param p_m Vector3d Measured position vector
  * @param s VectorXd last predicted state
+ * @param dt double  difference between last state time and current measurement time, in seconds
  * @return VectorXd Estimated observation
  * 
  */
 Eigen::VectorXd 
-estimateObservationFromPosition(Eigen::Vector3d p_m, Eigen::VectorXd s, ros::Time t){
+estimateObservationFromPosition(Eigen::Vector3d p_m, Eigen::VectorXd s, double dt){
     // z = [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed]
     //       0   1   2    3      4      5            6        7
     
@@ -371,8 +410,6 @@ estimateObservationFromPosition(Eigen::Vector3d p_m, Eigen::VectorXd s, ros::Tim
     // current position vector from the predicted state
     Eigen::Vector3d p; p << s(0), s(1), s(2);
 
-    // dt
-    double dt = (t - current_t_).toSec();
 
     if (dt <=0) return s; // not a new/valid measurement
 
@@ -400,15 +437,16 @@ estimateObservationFromPosition(Eigen::Vector3d p_m, Eigen::VectorXd s, ros::Tim
 
 }
 
+
 /**
- * @brief Prediciton step of a discrete EKF using given state x_ and dt_
+ * @brief Prediciton step of a discrete EKF using given state x and dt
  * @return kf_state current state (includes time, state, covariance)
  * @return kf_state Predicted state (includes time, state, covariance)
  */
 kf_state
 predictX(kf_state s, int dt){
     kf_state xx;
-    xx.time_stamp = current_t_ + ros::Duration(dt_);
+    xx.time_stamp = s.time_stamp + ros::Duration(dt);
 
     auto FF = F(s.x, dt);
     xx.P = FF*s.P*FF.transpose()+Q_;
@@ -429,7 +467,8 @@ updateX(sensor_measurement z, kf_state s){
 
     // estimate full observation
     Eigen::Vector3d p; p << z.z(0), z.z(1), z.z(2); // position measurement
-    auto z_m = estimateObservationFromPosition(p, s.x, z.time_stamp);
+    double dt = (z.time_stamp - s.time_stamp).toSec();
+    auto z_m = estimateObservationFromPosition(p, s.x, dt);
     auto y = z_m - h(s.x); // innovation
     auto S = H()*s.P*H().transpose() + R_; // innovation covariance
     auto K = s.P*H().transpose()*S.inverse(); // near-optimal Kalman gain
@@ -438,8 +477,54 @@ updateX(sensor_measurement z, kf_state s){
 
     return xx;
 }
+
+/**
+ * @brief Computes log Likelihood between predicted state and a measurement
+ * @param xx kf_state Predicted state (time, state, covariance)
+ * @param z sensor_measurement measurement (time, state, covariance)
+ * @return double logLikelihood
+ */
+double
+logLikelihood(kf_state xx, sensor_measurement z){
+    /* Just associate based on position, because other states are not o */
+    
+    Eigen::MatrixXd HH = Eigen::MatrixXd::Zero(3, NUM_STATES);
+    HH(0,0) = 1; //px
+    HH(1,1) = 1; //py
+    HH(2,2) = 1; //pz
+
+    auto y_hat = z.z - h(xx.x).block(0,0,3,1); // innovation, position only
+    auto S = R_ + HH*xx.P*HH.transpose(); // innovation covariance
+    double LL = -0.5 * (y_hat.transpose() * S.inverse() * y_hat + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
+
+    return LL;
+}
+
+/**
+ * Needs to be revisited!!! we can't push multiple measurements
+ * in the context of multi-target, we can't gurantee that measurements are for the same target!!!!!
+ * Just use one measurement
+ */
+kf_state
+initStateFromMeasurements(sensor_measurement z){
+
+    kf_state state;
+    state.time_stamp = z.time_stamp;
+    state.x = Eigen::MatrixXd::Zero(NUM_STATES,1);
+    state.x(0) = z.z(0);
+    state.x(1) = z.z(1);
+    state.x(2) = z.z(2);
+
+    state.P = Q_;
+
+    return state;
+}
+
 };
 
+// -----------------------------------------------------------------------//
+//------------------------- ConstantAccelModel --------------------------//
+//-----------------------------------------------------------------------//
 
 /**
  * @brief Constant acceleration model
@@ -460,8 +545,299 @@ int dt_; /* Prediction sampling time */
 ros::Time current_t_; /* Current time stamp */
 
 public:
-ConstantAccelModel(){};
+ConstantAccelModel():
+dt_(0.01)
+{};
 ~ConstantAccelModel(){};
+
+/**
+ * @brief Computes the state prediction using internal state x_, and dt_
+ * @param state vector
+ * @return predicted state vector
+ */
+Eigen::VectorXd
+f()
+{
+    auto new_x = f(x_, dt_);
+    return new_x;
+}
+
+/**
+ * @brief Computes the state prediction using model given state, and internal dt_
+ * @param state vector
+ * @return predicted state vector
+ */
+Eigen::VectorXd
+f(Eigen::VectorXd x)
+{
+    auto new_x = f(x, dt_); // Updates x_
+    return new_x;
+}
+
+/**
+ * @brief Computes the state prediction using model f(x)
+ * @param state vector
+ * @param dt sampling time in seconds
+ * @return predicted state vector
+ */
+Eigen::VectorXd
+f(Eigen::VectorXd x, int dt)
+{
+    if (dt < 0){
+        ROS_WARN("[ConstantAccelModel::f] dt is < 0. Returning same x");
+        return x;
+    }
+    // The following is based on this thesis:
+   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+   Eigen::MatrixXd A = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);
+   A.block(0,3,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
+   A.block(0,6,3,3)= (dt*dt/2.0)*Eigen::MatrixXd::Identity(3,3);
+   A.block(3,6,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
+    
+    return A*x;
+}
+
+/**
+ * @brief State transition matrix of a linear system
+ * @param double Sampling time in seconds
+ * @return MatrixXd State transition matrix
+ */
+Eigen::MatrixXd
+F(int dt){
+    // The following is based on this thesis:
+    // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+    Eigen::MatrixXd A = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);
+    A.block(0,3,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
+    A.block(0,6,3,3)= (dt*dt/2.0)*Eigen::MatrixXd::Identity(3,3);
+    A.block(3,6,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
+
+    return A;
+}
+
+/**
+ * @brief Computes the observation model h(x)
+ * @param x state vector
+ * @return observation z vector
+ */
+Eigen::VectorXd
+h(Eigen::VectorXd x)
+{
+    // The following is based on this thesis:
+    // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+    H_.resize(NUM_MEASUREMENTS, NUM_STATES);
+    H_ = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_STATES);
+    H_(0,0) = 1.0; // observing x
+    H_(1,1) = 1.0; // observing y
+    H_(2,2) = 1.0; // observing z
+    return H_ * x;
+}
+
+/**
+ * @brief Returns observation matrix H_
+ */
+Eigen::MatrixXd
+H(void){
+    // The following is based on this thesis:
+    // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
+    H_.resize(NUM_MEASUREMENTS, NUM_STATES);
+    H_ = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_STATES);
+    H_(0,0) = 1.0; // observing x
+    H_(1,1) = 1.0; // observing y
+    H_(2,2) = 1.0; // observing z
+    return H_;
+}
+
+/**
+ * @brief Sets observation matrix H_
+ * @param M MatrixXd Input observation matrix
+ * @return Bool True of dimenstions are OK.
+ */
+bool
+H(Eigen::MatrixXd M){
+    if(M.cols() == NUM_STATES && M.rows() == NUM_MEASUREMENTS){
+        H_.resize(NUM_MEASUREMENTS, NUM_STATES);
+        H_ = M;
+        return true;
+    }
+    else
+        return false;
+}
+
+
+/**
+ * @brief Returns Q_
+ */
+Eigen::MatrixXd
+Q(void)
+{
+    return Q_;
+}
+
+/**
+ * @brief Sets Q_
+ * @param M MatrixXd Input Q matrix
+ * @return Bool. True if dimenstions are OK. 
+ */
+bool
+Q(Eigen::MatrixXd M)
+{
+    if (M.cols() == NUM_STATES && M.rows()==NUM_STATES){
+        Q_.resize(NUM_STATES,NUM_STATES);
+        Q_=M;
+        return true;
+    }
+    else
+        return false;
+}
+
+/**
+ * @brief Returns R_
+ * @return MatrixXd Measurement covariance matrix R_
+ */
+Eigen::MatrixXd
+R(void)
+{
+    return R_;
+}
+
+/**
+ * @brief Sets R_
+ * @param MatrixXd Input R matrix
+ * @return Bool. True if dimensions are OK. 
+ */
+bool
+R(Eigen::MatrixXd M)
+{
+    if (M.rows() == NUM_MEASUREMENTS && M.cols() == NUM_MEASUREMENTS){
+        R_.resize(NUM_MEASUREMENTS,NUM_MEASUREMENTS);
+        R_ = M;
+        return true;
+    }
+    else
+        return false;
+}
+
+/**
+ * @brief Returns P_
+ * @return MatrixXd State covariance matrix
+ */
+Eigen::MatrixXd
+P(void)
+{
+    return P_;
+}
+
+/**
+ * @brief Sets P_
+ * @param MatrixXd input state covariance matrix
+ * @return Bool. True if dimensions are OK.
+ */
+bool
+P(Eigen::MatrixXd M)
+{
+    if (M.rows() == NUM_STATES && M.cols() == NUM_STATES){
+        P_.resize(NUM_STATES,NUM_STATES);
+        P_ = M;
+        return true;
+    }
+    else
+        return false;
+}
+
+/**
+ * @brief Returns current state vectror 
+ * @return VectorXd State vector x_
+ */
+Eigen::VectorXd
+x(void){
+    return x_;
+}
+
+/**
+ * @brief Sets current state vectror x_
+ * @param VectorXd Input state vector
+ * @return Bool. True if dimensions are OK.
+ */
+bool
+x(Eigen::VectorXd v){
+    if(v.cols() == 1 and v.rows()==NUM_STATES){
+        x_ = v;
+        return true;
+    }
+    else
+        return false;
+}
+
+kf_state
+state(void){
+    return state_;
+}
+
+/**
+ * @brief Prediciton step of a discrete KF using given state s and dt
+ * @return kf_state current state (includes time, state, covariance)
+ * @return kf_state Predicted state (includes time, state, covariance)
+ */
+kf_state
+predictX(kf_state s, int dt){
+    kf_state xx;
+    xx.time_stamp = current_t_ + ros::Duration(dt);
+
+    auto FF = F(dt);
+    xx.P = FF*s.P*FF.transpose()+Q_;
+    xx.x = f(s.x, dt);
+    
+    return xx;
+}
+
+/**
+ * @brief Update step of a discrete KF using given state x and dt, and measurements z
+ * @param kf_state current state (includes time, state, covariance)
+ * @return kf_state Predicted state (includes time, state, covariance)
+ */
+kf_state
+updateX(sensor_measurement z, kf_state s){
+    kf_state xx;
+    xx.time_stamp = z.time_stamp;
+
+    auto y = z.z - h(s.x); // innovation
+    auto S = H()*s.P*H().transpose() + R_; // innovation covariance
+    auto K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
+    xx.x = s.x + K*y;
+    xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
+
+    return xx;
+}
+
+/**
+ * @brief Computes log Likelihood between predicted state and a measurement
+ * @param xx kf_state Predicted state (time, state, covariance)
+ * @param z sensor_measurement measurement (time, state, covariance)
+ * @return double logLikelihood
+ */
+double
+logLikelihood(kf_state xx, sensor_measurement z){
+   auto y_hat = z.z - h(xx.x); // innovation
+   auto S = R_ + H()*xx.P*H().transpose(); // innovation covariance
+   double LL = -0.5 * (y_hat.transpose() * S.inverse() * y_hat + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
+
+   return LL;
+}
+
+kf_state
+initStateFromMeasurements(sensor_measurement z){
+
+    kf_state state;
+    state.time_stamp = z.time_stamp;
+    state.x = Eigen::MatrixXd::Zero(NUM_STATES,1);
+    state.x(0) = z.z(0);
+    state.x(1) = z.z(1);
+    state.x(2) = z.z(2);
+
+    state.P = Q_;
+
+    return state;
+}
 
 };
 

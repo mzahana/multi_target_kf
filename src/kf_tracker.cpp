@@ -103,160 +103,7 @@ KFTracker::~KFTracker()
 {
 }
 
-void KFTracker::setQ(void)
-{
-   // This is for constant velocity model \in R^3
 
-   // Q_.resize(6,6);
-   // Q_ = Eigen::MatrixXd::Zero(6,6);
-
-   // Q_(0,0) = 1./3.*dt_pred_*dt_pred_*dt_pred_; // x with x
-   // Q_(0,3) = 0.5*dt_pred_*dt_pred_; // x with vx
-   // Q_(1,1) = 1./3.*dt_pred_*dt_pred_*dt_pred_; // y with y
-   // Q_(1,4) = 0.5*dt_pred_*dt_pred_; // y with vy
-   // Q_(2,2) = 1./3.*dt_pred_*dt_pred_*dt_pred_; // z with z
-   // Q_(2,5) = 0.5*dt_pred_*dt_pred_; // z with vz
-   // Q_(3,0) = Q_(0,3); // vx with x. Symmetric
-   // Q_(3, 3) = dt_pred_; // vx with vx
-   // Q_(4,1) = Q_(1,4); // vy with y. Symmetric
-   // Q_(4,4) = dt_pred_; // vy with vy
-   // Q_(5,2) = Q_(2,5); // vz with z. Symmetric
-   // Q_(5,5) = dt_pred_; // vz with vz
-
-   // Q_ = q_*q_*Q_; // multiply by process noise variance
-
-    /************* The following is based on Saska's paper ********/
-   // Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
-   // Qp = dt_pred_*q_pos_std_*q_pos_std_*Qp;
-   // Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
-   // Qv = dt_pred_*q_vel_std_*q_vel_std_*Qv;
-
-   // Q_.block(0,0,3,3) = Qp;
-   // Q_.block(3,3,3,3) = Qv;
-
-   // The following is based on this thesis:
-   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   // state: [x,y,z, vx,vy,vz, ax,ay,az]
-   Q_.resize(NUM_OF_STATES,NUM_OF_STATES);
-   Q_ = Eigen::MatrixXd::Zero(NUM_OF_STATES,NUM_OF_STATES);
-   Q_.block(0,0,3,3) = q_pos_std_*Eigen::MatrixXd::Identity(3,3); // position block
-   Q_.block(3,3,3,3) = q_vel_std_*Eigen::MatrixXd::Identity(3,3); // velocity block
-   Q_.block(6,6,3,3) = q_acc_std_*Eigen::MatrixXd::Identity(3,3); // acceleration block
-
-}
-
-Eigen::MatrixXd KFTracker::setQ(double dt)
-{
-   // This is for constant velocity model \in R^3
-
-   Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(NUM_OF_STATES,NUM_OF_STATES);
-
-   // Q(0,0) = 1./3.*dt*dt*dt; // x with x
-   // Q(0,3) = 0.5*dt*dt; // x with vx
-   // Q(1,1) = 1./3.*dt*dt*dt; // y with y
-   // Q(1,4) = 0.5*dt*dt; // y with vy
-   // Q(2,2) = 1./3.*dt*dt*dt; // z with z
-   // Q(2,5) = 0.5*dt*dt; // z with vz
-   // Q(3,0) = Q_(0,3); // vx with x. Symmetric
-   // Q(3, 3) = dt; // vx with vx
-   // Q(4,1) = Q(1,4); // vy with y. Symmetric
-   // Q(4,4) = dt; // vy with vy
-   // Q(5,2) = Q(2,5); // vz with z. Symmetric
-   // Q(5,5) = dt; // vz with vz
-
-   // Q = q_*q_*Q; // multiply by process noise variance
-
-   /************* The following is based on Saska's paper ********/
-   // Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
-   // Qp = dt*q_pos_std_*q_pos_std_*Qp;
-   // Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
-   // Qv = dt*q_vel_std_*q_vel_std_*Qv;
-
-   // Q.block(0,0,3,3) = Qp;
-   // Q.block(3,3,3,3) = Qv;
-
-   // The following is based on this thesis:
-   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   // state: [x,y,z, vx,vy,vz, ax,ay,az]
-   Q.block(0,0,3,3) = q_pos_std_*q_pos_std_*Eigen::MatrixXd::Identity(3,3); // position block
-   Q.block(3,3,3,3) = q_vel_std_*q_vel_std_*Eigen::MatrixXd::Identity(3,3); // velocity block
-   Q.block(6,6,3,3) = q_acc_std_*q_acc_std_*Eigen::MatrixXd::Identity(3,3); // acceleration block
-
-
-   return Q;
-}
-
-void KFTracker::setR(void)
-{
-   R_.resize(NUM_OF_MEASUREMENTS,NUM_OF_MEASUREMENTS);
-   R_ = Eigen::MatrixXd::Identity(NUM_OF_MEASUREMENTS,NUM_OF_MEASUREMENTS);
-   // R_ = r_*r_*R_; // multiply by observation noise variance
-
-   // The following is based on this thesis:
-   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   R_ = r_*r_*R_; // multiply by observation noise variance
-}
-
-void KFTracker::setF(void)
-{
-   // This is for constant velocity model \in R^3
-
-   // F_.resize(6,6);
-   // F_ = Eigen::MatrixXd::Identity(6,6);
-   // F_(0,3) = dt_pred_; // x - vx
-   // F_(1,4) = dt_pred_; // y - vy
-   // F_(2,5) = dt_pred_; // z - vz
-
-   // The following is based on this thesis:
-   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   F_.resize(NUM_OF_STATES,NUM_OF_STATES);
-   F_ = Eigen::MatrixXd::Identity(NUM_OF_STATES,NUM_OF_STATES);
-   F_.block(0,3,3,3)= dt_pred_*Eigen::MatrixXd::Identity(3,3);
-   F_.block(0,6,3,3)= (dt_pred_*dt_pred_/2.0)*Eigen::MatrixXd::Identity(3,3);
-   F_.block(3,6,3,3)= dt_pred_*Eigen::MatrixXd::Identity(3,3);
-}
-
-Eigen::MatrixXd KFTracker::setF(int dt)
-{
-   // This is for constant velocity model \in R^3
-
-   // F_.resize(6,6);
-   // F_ = Eigen::MatrixXd::Identity(6,6);
-   // F_(0,3) = dt_pred_; // x - vx
-   // F_(1,4) = dt_pred_; // y - vy
-   // F_(2,5) = dt_pred_; // z - vz
-
-   // The following is based on this thesis:
-   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   Eigen::MatrixXd F = Eigen::MatrixXd::Identity(NUM_OF_STATES,NUM_OF_STATES);
-   F.block(0,3,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
-   F.block(0,6,3,3)= (dt*dt/2.0)*Eigen::MatrixXd::Identity(3,3);
-   F.block(3,6,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
-
-   return F;
-}
-
-void KFTracker::setH(void)
-{
-   // H_.resize(3,6);
-   // H_ = Eigen::MatrixXd::Zero(3,6);
-   // H_(0,0) = 1.0; // observing x
-   // H_(1,1) = 1.0; // observing y
-   // H_(2,2) = 1.0; // observing z
-
-   // The following is based on this thesis:
-   // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
-   H_.resize(NUM_OF_MEASUREMENTS,NUM_OF_STATES);
-   H_ = Eigen::MatrixXd::Zero(NUM_OF_MEASUREMENTS,NUM_OF_STATES);
-   H_(0,0) = 1.0; // observing x
-   H_(1,1) = 1.0; // observing y
-   H_(2,2) = 1.0; // observing z
-}
-
-void KFTracker::initP(void)
-{
-   kf_state_pred_.P = Q_;
-}
 
 void KFTracker::initKF(void)
 {
@@ -288,19 +135,6 @@ void KFTracker::initKF(void)
    return;
 }
 
-//****************** To be removed
-void KFTracker::updateStateBuffer(void)
-{
-   kf_state kfstate;
-   kfstate.time_stamp = kf_state_pred_.time_stamp;
-   kfstate.x = kf_state_pred_.x;
-   kfstate.P = kf_state_pred_.P;
-   state_buffer_.push_back(kfstate);
-   if(state_buffer_.size() > state_buffer_size_)
-      state_buffer_.erase(state_buffer_.begin()); // remove first element in the buffer
-
-   return;
-}
 
 void KFTracker::predictTracks(void)
 {
@@ -315,15 +149,6 @@ void KFTracker::predictTracks(void)
       auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
       auto V = sqrt(std::fabs(P_p.determinant()));
 
-      // Remove tracks with high uncertainty
-      // if(V > V_max_)
-      // {
-      //    if(debug_)
-      //       ROS_WARN_THROTTLE(1.0, "[Prediction step] Track %d uncertainty = %f is high. Removing it.", i, V);
-      //    tracks_.erase(it--);
-      //    continue;
-      // }
-
       // update buffer
       (*it).buffer.push_back((*it).current_state);
       if((*it).buffer.size() > state_buffer_size_)
@@ -333,45 +158,6 @@ void KFTracker::predictTracks(void)
    return;
 }
 
-//****************** To be removed
-bool KFTracker::predict(void)
-{
-   kf_state_pred_.x = F_*kf_state_pred_.x;
-   if(kf_state_pred_.x.norm() > 10000.0)
-   {
-      ROS_ERROR("state prediciotn exploded!!!");
-      is_state_initialzed_ = false;
-      initKF();
-      return false;
-   }
-   kf_state_pred_.P = F_*kf_state_pred_.P*F_.transpose() + Q_;
-   kf_state_pred_.time_stamp = ros::Time::now();
-   
-   // Add state to buffer
-   updateStateBuffer();
-
-   return true;
-}
-
-kf_state KFTracker::predict(kf_state x, double dt)
-{
-   if (dt < 0.0){
-      ROS_ERROR("[KFTracker::predict] dt <0 !. Skipping state prediciton");
-      return x;
-   }
-
-   auto F = setF(dt);
-
-   auto state = x;
-
-   auto Q = setQ(dt);
-
-   state.x = F*state.x;
-   state.P = F*state.P*F.transpose() + Q;
-   state.time_stamp = state.time_stamp + ros::Duration(dt);
-
-   return state;
-}
 
 double KFTracker::logLikelihood(kf_state x, sensor_measurement z)
 {
@@ -451,12 +237,13 @@ void KFTracker::updateTracks(ros::Time t)
       } // end loop over tracks_[i].buffer
 
       if( found_closest_state ){
-         // predict state up to the current meaasurement time
-         auto dt = z_t - (*it).current_state.time_stamp.toSec();
-         auto proj_state = predict((*it).current_state, dt);
-         (*it).current_state.time_stamp = proj_state.time_stamp;
-         (*it).current_state.x = proj_state.x;
-         (*it).current_state.P = proj_state.P;
+         double dt;
+         // predict state up to the current meaasurement time (NOT needed?!)
+         // dt = z_t - (*it).current_state.time_stamp.toSec();
+         // auto proj_state = predict((*it).current_state, dt);
+         // (*it).current_state.time_stamp = proj_state.time_stamp;
+         // (*it).current_state.x = proj_state.x;
+         // (*it).current_state.P = proj_state.P;
 
          // Measurement-state association. Find measurement with the highest log-likelihood
          sensor_measurement best_m;
@@ -490,7 +277,7 @@ void KFTracker::updateTracks(ros::Time t)
          }
 
          // Update KF estimate to the current time t
-         dt = t.toSec() - z_t;
+         dt = t.toSec() - (*it).current_state.time_stamp.toSec();
          auto final_x = predict((*it).current_state, dt);
          (*it).current_state.time_stamp = final_x.time_stamp;
          (*it).current_state.x = final_x.x;
@@ -769,7 +556,7 @@ void KFTracker::initTracks(void)
    {
       kf_state state;
       state.time_stamp = z[i].time_stamp;
-      state.x = Eigen::MatrixXd::Zero(6,1);
+      state.x = Eigen::MatrixXd::Zero(NUM_OF_STATES,1);
       state.x.block(0,0,NUM_OF_MEASUREMENTS,1) = z[i].z; // 3D position
       state.x(3) = 0.000001; // vx
       state.x(4) = 0.000001; // vy
