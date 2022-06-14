@@ -64,16 +64,6 @@ enum MODEL : unsigned char
 
 
 /**
- * Structure to store the current stamped KF prediction
- */
-struct kf_state
-{
-   ros::Time time_stamp;
-   Eigen::VectorXd x; // State estimate (from KF prediciton step)
-   Eigen::MatrixXd P; // State estimate covariance (from KF prediction step)
-};
-
-/**
  * Structure to store the current stamped KF prediction and buffer of previous state
  */
 struct kf_track
@@ -82,16 +72,6 @@ struct kf_track
    kf_state current_state;
    std::vector<kf_state> buffer;
    unsigned int n; /**< Number of received measurements. */
-};
-
-/**
- * Structure to store current stamped sensor measurement.
- */
-struct sensor_measurement
-{
-   ros::Time time_stamp;
-   unsigned int id; /**< OPtional. Associated measurement ID, e.g. Apriltag ID */
-   Eigen::VectorXd z; /**< Measurements, e.g. 3D position, velocity, ... etc */
 };
 
 
@@ -118,8 +98,8 @@ private:
    int N_meas_; /**< minimum number of measurements to accept a track and add it to certain_tracks_. */
    double l_threshold_; /**< measurement association log-likelihood threshold. */
 
-   const int NUM_OF_STATES=9; /**< number of states */
-   const int NUM_OF_MEASUREMENTS=3; /**< Number of measurements */
+   int NUM_OF_STATES=9; /**< number of states */
+   int NUM_OF_MEASUREMENTS=3; /**< Number of measurements */
    kf_state kf_state_pred_; /**< KF predicted state and covariance */
    Eigen::VectorXd x_pred_; /**< State estimate. 6x1 vector. 3D position and velocity. */
    Eigen::MatrixXd P_pred_; /**< Updated (a posteriori) estimate covariance. */
