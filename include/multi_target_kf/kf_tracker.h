@@ -62,7 +62,6 @@ enum MODEL : unsigned char
    CONSTANT_ACCEL = 0, DUBINS = 1
 };
 
-
 /**
  * Structure to store the current stamped KF prediction and buffer of previous state
  */
@@ -74,6 +73,7 @@ struct kf_track
    unsigned int n; /**< Number of received measurements. */
 };
 
+const unsigned char kMODEL = MODEL::DUBINS;
 
 //* KFTracker class
 /**
@@ -87,6 +87,8 @@ private:
    ros::NodeHandle nh_;
    ros::NodeHandle nh_private_;
 
+   double dt_pred_;
+
    std::vector<kf_track> tracks_; /**< Vector of current tracks. */
    std::vector<kf_track> certain_tracks_; /**< Vector of certain tracks only. */
 
@@ -98,23 +100,10 @@ private:
    int N_meas_; /**< minimum number of measurements to accept a track and add it to certain_tracks_. */
    double l_threshold_; /**< measurement association log-likelihood threshold. */
 
-   int NUM_OF_STATES=9; /**< number of states */
-   int NUM_OF_MEASUREMENTS=3; /**< Number of measurements */
    kf_state kf_state_pred_; /**< KF predicted state and covariance */
-   Eigen::VectorXd x_pred_; /**< State estimate. 6x1 vector. 3D position and velocity. */
-   Eigen::MatrixXd P_pred_; /**< Updated (a posteriori) estimate covariance. */
    sensor_measurement z_meas_; /**< current sensor measurement. 3x1 vector. */
    sensor_measurement z_last_meas_; /**< previous sensor measurement. 3x1 vector. */
-   Eigen::MatrixXd F_; /**< State transition model. */
-   Eigen::MatrixXd H_; /**< Observation model. */
-   Eigen::MatrixXd Q_; /**< Covariance of the process noise. */
-   Eigen::MatrixXd R_; /**< Covariance of the observation noise. */
-   double q_; /**< standard deviation of process noise. */
-   double q_pos_std_; /**< position standard deviation of process noise. */
-   double q_vel_std_; /**< velocity standard deviation of process noise. */
-   double q_acc_std_; /**< Acceleration standard deviation of process noise. */
-   double r_; /**< standard deviation of observation noise. */
-   double dt_pred_; /**< KF prediction sampling time in seconds. */
+   
    bool is_state_initialzed_; /**< flag to start state prediction. Initialized by 1st measurement. */
    std::vector<kf_state> state_buffer_; /**< Bueffer to store last state_buffer_size_ predicted x and P */
    unsigned int state_buffer_size_; /**< lenght of state buffer state_buffer_*/
@@ -128,43 +117,15 @@ private:
    bool listen_tf_; /**< listens to TF to find transofrms of received measurements w.r.t. tracking_frame_ */
    bool use_track_id_; /**< False: does not consider track ID in measurement-state association */
 
-   ConstantAccelModel constAccelModel_; /* Constant acceleration KF model */
-   DubinsModel dubinsModel_; /* 3D Dubins EKF model */
+   std::vector<double> q_diag_; /* diagonal elements of Q matrix */
+   std::vector<double> r_diag_; /* diagonal elements of R matrix */
+
+   ConstantAccelModel kf_model_; /* Constant acceleration KF model */
+   // DubinsModel kf_model_; /* 3D Dubins EKF model */
+
+   
 
    bool debug_; /**< for printing debug message */
-
-   /**
-    * @brief Computes estimate covariance Q based on sampling time dt_pred_ and  process noise q_.
-    */
-   void setQ(void);
-
-   Eigen::MatrixXd setQ(double dt);
-
-   /**
-    * @brief Computes observation covariance R based on  observation noise r_.
-    */
-   void setR(void);
-
-   /**
-    * @brief Computes discrete transition matrix F_ based on sampling time dt_pred_.
-    */
-   void setF(void);
-
-   /**
-    * @brief Computes discrete transition matrix F_ based on specific sampling time dt.
-    * @param dt sampling time >0 in seconds
-    */
-   Eigen::MatrixXd setF(int dt);
-
-   /**
-    * @brief Computes discrete observation matrix H_. Observations are positions x,y,z.
-    */
-   void setH(void);
-
-   /**
-    * @brief Initialize estimate covariance P with Q.
-    */
-   void initP(void);
 
    /**
     * @brief Initializes KF F,H,Q,R, and initial state and covariance estimates
@@ -176,28 +137,8 @@ private:
     */
    void initTracks(void);
 
-   /**
-    * @brief Adds the current x_pred_ and P_pred_state to the end of buffer state_buffer_  .
-    * It erases the first element in the state_buffer_ vector if its size exceeds state_buffer_size_.
-    */
-   void updateStateBuffer(void);
-
-   /**
-    * @brief Performs Kalman filter prediction step. Result is stored in kf_state_pred_.
-    * @return true if prediciton is successful (e.g. state does not explode!)
-    */
-   bool predict(void);
-
-   kf_state predict(kf_state x, double dt);
 
    void predictTracks(void);
-
-   /**
-    * @brief Performs KF correciton step for a given state and measurement.
-    * @param state KF state
-    * @param z measurement (3D position)
-    */
-   kf_state correctState(kf_state state, sensor_measurement z);
 
    /**
     * @brief Performs KF update step for all tracks. 
@@ -211,24 +152,12 @@ private:
     */
    void updateCertainTracks(void);
 
-   /**
-    * @brief Computest eh log-likelihood of a measurement w.r.t a given state
-    * @param x state with covariance
-    * @param z measurement (3D position)
-    */
-   double logLikelihood(kf_state x, sensor_measurement z);
 
    /**
     * @brief Executes the KF predict and update steps.
     */
    void filterLoop(const ros::TimerEvent& event);
 
-   /**
-    * @brief Measurement ROS Callback. Updates z_meas_
-    * 
-    * @param msg Holds PoseStamped measurement
-    */
-   void poseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
 
    /**
     * @brief Measurement ROS Callback. Updates measurement_set_
@@ -244,11 +173,6 @@ private:
     */
    // void apriltagsCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr& msg);
 
-   /**
-    * @brief Publishes state estimate (kf_state_pred_.x) in a ROS PoseStamped topic.
-    * Orientation in PoseStampe is ignored and set to Identity
-    */
-   void publishState(void);
 
    void publishTracks(void);
 

@@ -90,6 +90,16 @@ current_t_(ros::Time::now())
 {}
 ~DubinsModel(){}
 
+unsigned int
+numStates(){
+    return NUM_STATES;
+}
+
+unsigned int
+numMeasurements(){
+    return NUM_MEASUREMENTS;
+}
+
 bool init(void)
 {
     F_.resize(NUM_STATES,NUM_STATES);
@@ -315,6 +325,24 @@ Q(Eigen::MatrixXd M)
 }
 
 /**
+ * @brief Initialize Q_ as a diagonal matrix using a std::vector representing diagonal elements
+ * @param v std::vector<double> Vector of diagonla elements.  Its size must be equal to NUM_STATES
+ * @return Bool True if size of input vector = NUM_STATES
+ */
+bool
+Q(std::vector<double> v){
+    if(v.size()!=NUM_STATES){
+        ROS_ERROR("[DubinsModel::Q] Input vector size != NUM_STATES");
+        return false;
+    }
+    Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
+    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+
+    Q_ = temp.asDiagonal();
+    return true;
+}
+
+/**
  * @brief Returns R_
  */
 Eigen::MatrixXd
@@ -336,6 +364,24 @@ R(Eigen::MatrixXd M)
     }
     else
         return false;
+}
+
+/**
+ * @brief Initialize R_ as a diagonal matrix using a std::vector representing diagonal elements
+ * @param v std::vector<double> Vector of diagonla elements.  Its size must be equal to NUM_MEASUREMENTS
+ * @return Bool True if size of input vector = NUM_MEASUREMENTS
+ */
+bool
+R(std::vector<double> v){
+    if(v.size()!=NUM_MEASUREMENTS){
+        ROS_ERROR("[DubinsModel::R] Input vector size != NUM_MEASUREMENTS");
+        return false;
+    }
+    Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);
+    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+
+    R_ = temp.asDiagonal();
+    return true;
 }
 
 /**
@@ -381,11 +427,6 @@ x(Eigen::VectorXd v){
     }
     else
         return false;
-}
-
-kf_state
-state(void){
-    return state_;
 }
 
 /**
@@ -486,7 +527,7 @@ updateX(sensor_measurement z, kf_state s){
  */
 double
 logLikelihood(kf_state xx, sensor_measurement z){
-    /* Just associate based on position, because other states are not o */
+    /* Just associate based on position, because other states are not obseravble */
     
     Eigen::MatrixXd HH = Eigen::MatrixXd::Zero(3, NUM_STATES);
     HH(0,0) = 1; //px
@@ -549,6 +590,16 @@ ConstantAccelModel():
 dt_(0.01)
 {};
 ~ConstantAccelModel(){};
+
+unsigned int
+numStates(){
+    return NUM_STATES;
+}
+
+unsigned int
+numMeasurements(){
+    return NUM_MEASUREMENTS;
+}
 
 /**
  * @brief Computes the state prediction using internal state x_, and dt_
@@ -691,6 +742,24 @@ Q(Eigen::MatrixXd M)
 }
 
 /**
+ * @brief Initialize Q_ as a diagonal matrix using a std::vector representing diagonal elements
+ * @param v std::vector<double> Vector of diagonla elements.  Its size must be equal to NUM_STATES
+ * @return Bool True if size of input vector = NUM_STATES
+ */
+bool
+Q(std::vector<double> v){
+    if((unsigned int)v.size()!=NUM_STATES){
+        ROS_ERROR("[ConstantAccelModel::Q] Input vector size != NUM_STATES, v.size = %d", v.size());
+        return false;
+    }
+    Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
+    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+
+    Q_ = temp.asDiagonal();
+    return true;
+}
+
+/**
  * @brief Returns R_
  * @return MatrixXd Measurement covariance matrix R_
  */
@@ -715,6 +784,24 @@ R(Eigen::MatrixXd M)
     }
     else
         return false;
+}
+
+/**
+ * @brief Initialize R_ as a diagonal matrix using a std::vector representing diagonal elements
+ * @param v std::vector<double> Vector of diagonla elements.  Its size must be equal to NUM_MEASUREMENTS
+ * @return Bool True if size of input vector = NUM_MEASUREMENTS
+ */
+bool
+R(std::vector<double> v){
+    if((unsigned int)v.size()!=NUM_MEASUREMENTS){
+        ROS_ERROR("[ConstantAccelModel::R] Input vector size != NUM_MEASUREMENTS, v.size = %d", v.size());
+        return false;
+    }
+    Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);
+    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+
+    R_ = temp.asDiagonal();
+    return true;
 }
 
 /**
@@ -768,10 +855,6 @@ x(Eigen::VectorXd v){
         return false;
 }
 
-kf_state
-state(void){
-    return state_;
-}
 
 /**
  * @brief Prediciton step of a discrete KF using given state s and dt
