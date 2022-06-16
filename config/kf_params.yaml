@@ -1,16 +1,8 @@
 # Rate of prediction step
-dt_pred: 0.01
-# Standard deviation of the process noise
-q_std: 1.0
-# Standard deviation of position process noise
-q_pos_std: 1.0
-# Standard deviation of velocity process noise
-q_vel_std: 1.0
-# Standard deviation of acceleration process noise
-q_acc_std: 1.0
-# Standard deviation of the observation noise
-r_std: 5.0
-print_debug_msg: false
+dt_pred: 0.02
+q_diag: [1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+r_diag: [0.5, 0.5, 0.5]
+print_debug_msg: true
 # Provide estimate w.r.t this frame
 tracking_frame: 'interceptor_odom'
 # Topic name of the tag detections
@@ -20,7 +12,7 @@ target_frameid: 'tag'
 # Get target measurements from TF tree
 listen_tf: true
 # Maximum uncertainty before rejecting a track [m^3] 
-V_max: 30.0
+V_max: 50.0
 # Minimum uncertainty for confirming a track [m^3]
 V_certain: 10.0
 # Minimum number of measurements to confirm a track
