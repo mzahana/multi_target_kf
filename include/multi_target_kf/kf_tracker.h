@@ -130,7 +130,7 @@ private:
    /**
     * @brief Initializes KF F,H,Q,R, and initial state and covariance estimates
     */
-   void initKF(void);
+   bool initKF(void);
 
    /**
     * @brief Initializes KF tracks using current measurements.

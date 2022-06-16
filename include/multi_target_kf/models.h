@@ -65,6 +65,31 @@ struct DubinState
    double px, py, pz, vx, vy, vz, theta, gamma, theta_dot, gamma_dot, speed;
 };
 
+/**
+ * @brief Base class that contains all common members and functions for all models.
+ * @todo Needs implementation
+ */
+class BaseModel
+{
+protected:
+
+Eigen::MatrixXd F_; /* State transition jacobian matrix */
+Eigen::MatrixXd H_; /* Observation jacobian matrix */
+Eigen::MatrixXd Q_; /** Process covariance matrix */
+Eigen::MatrixXd P_; /* State covariance estimate */
+Eigen::MatrixXd R_; /** Measurements covariance matrix */
+Eigen::VectorXd x_; /* Current state vector [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed] */
+const unsigned int NUM_STATES=8; /* State dimension */
+const unsigned int NUM_MEASUREMENTS=8; /* Measurements dimension */
+double dt_; /* Prediction sampling time */
+ros::Time current_t_; /* Current time stamp */
+
+public:
+BaseModel(){}
+~BaseModel(){}
+
+};
+
 class DubinsModel
 {
 /* Can read, Can't write*/
@@ -78,7 +103,7 @@ Eigen::MatrixXd R_; /** Measurements covariance matrix */
 Eigen::VectorXd x_; /* Current state vector [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed] */
 const unsigned int NUM_STATES=8; /* State dimension */
 const unsigned int NUM_MEASUREMENTS=8; /* Measurements dimension */
-int dt_; /* Prediction sampling time */
+double dt_; /* Prediction sampling time */
 ros::Time current_t_; /* Current time stamp */
 
 
@@ -109,7 +134,7 @@ bool init(void)
 }
 
 bool
-setDt(int dt){
+setDt(double dt){
     if (dt < 0){
         ROS_WARN("[DubinModel::setDt] dt < 0");
         return false;
@@ -180,7 +205,7 @@ f(Eigen::VectorXd x)
  * @return predicted state vector
  */
 Eigen::VectorXd
-f(Eigen::VectorXd x, int dt)
+f(Eigen::VectorXd x, double dt)
 {
     if (dt < 0){
         ROS_WARN("[DubinModel::f] dt is < 0. Returning same x");
@@ -217,7 +242,7 @@ h(Eigen::VectorXd x)
  * @return jacobain F matrix
  */
 Eigen::MatrixXd
-F(Eigen::VectorXd x, int dt)
+F(Eigen::VectorXd x, double dt)
 {
     // x = [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed]
     //      0    1   2   3      4      5           6          7
@@ -378,7 +403,7 @@ R(std::vector<double> v){
         return false;
     }
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);
-    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+    for (int i=0; i< NUM_MEASUREMENTS; i++) temp(i) = v[i];
 
     R_ = temp.asDiagonal();
     return true;
@@ -485,7 +510,7 @@ estimateObservationFromPosition(Eigen::Vector3d p_m, Eigen::VectorXd s, double d
  * @return kf_state Predicted state (includes time, state, covariance)
  */
 kf_state
-predictX(kf_state s, int dt){
+predictX(kf_state s, double dt){
     kf_state xx;
     xx.time_stamp = s.time_stamp + ros::Duration(dt);
 
@@ -574,6 +599,8 @@ class ConstantAccelModel
 {
 protected:
 
+bool debug_; /* Print debug messages */
+
 Eigen::MatrixXd F_; /* State transition matrix */
 Eigen::MatrixXd H_; /* Observation jacobian matrix */
 Eigen::MatrixXd Q_; /** Process covariance matrix */
@@ -582,14 +609,26 @@ Eigen::MatrixXd R_; /** Measurements covariance matrix */
 Eigen::VectorXd x_; /* Current state (mean) vector [x, y, z, vx, vy, vz, ax, ay, az] */
 const unsigned int NUM_STATES=9;
 const unsigned int NUM_MEASUREMENTS=3; // position \in R^3
-int dt_; /* Prediction sampling time */
+double dt_; /* Prediction sampling time */
 ros::Time current_t_; /* Current time stamp */
 
 public:
+
+void
+debug(bool d){
+    debug_ = d;
+}
+
 ConstantAccelModel():
-dt_(0.01)
-{};
-~ConstantAccelModel(){};
+dt_(0.01),
+F_(Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES)),
+H_(Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_STATES)),
+Q_(Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES)),
+P_(Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES)),
+R_(Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_MEASUREMENTS)),
+x_(Eigen::MatrixXd::Zero(NUM_STATES,1))
+{}
+~ConstantAccelModel(){}
 
 unsigned int
 numStates(){
@@ -632,10 +671,13 @@ f(Eigen::VectorXd x)
  * @return predicted state vector
  */
 Eigen::VectorXd
-f(Eigen::VectorXd x, int dt)
+f(Eigen::VectorXd x, double dt)
 {
-    if (dt < 0){
-        ROS_WARN("[ConstantAccelModel::f] dt is < 0. Returning same x");
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::f] Calculating f");
+
+    if (dt <= 0){
+        ROS_WARN("[ConstantAccelModel::f] dt is <= 0. Returning same x");
         return x;
     }
     // The following is based on this thesis:
@@ -654,7 +696,10 @@ f(Eigen::VectorXd x, int dt)
  * @return MatrixXd State transition matrix
  */
 Eigen::MatrixXd
-F(int dt){
+F(double dt){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::F] Calculating F");
+
     // The following is based on this thesis:
     // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
     Eigen::MatrixXd A = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);
@@ -671,8 +716,11 @@ F(int dt){
  * @return observation z vector
  */
 Eigen::VectorXd
-h(Eigen::VectorXd x)
+h(Eigen::VectorXd xx)
 {
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::h] Calculating h");
+
     // The following is based on this thesis:
     // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
     H_.resize(NUM_MEASUREMENTS, NUM_STATES);
@@ -680,7 +728,11 @@ h(Eigen::VectorXd x)
     H_(0,0) = 1.0; // observing x
     H_(1,1) = 1.0; // observing y
     H_(2,2) = 1.0; // observing z
-    return H_ * x;
+
+    auto z = H_*xx;
+    if(debug_)
+        std::cout << "h(x) = \n" << z << "\n";
+    return z;
 }
 
 /**
@@ -688,6 +740,9 @@ h(Eigen::VectorXd x)
  */
 Eigen::MatrixXd
 H(void){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::H] Returning H_");
+
     // The following is based on this thesis:
     // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
     H_.resize(NUM_MEASUREMENTS, NUM_STATES);
@@ -701,10 +756,13 @@ H(void){
 /**
  * @brief Sets observation matrix H_
  * @param M MatrixXd Input observation matrix
- * @return Bool True of dimenstions are OK.
+ * @return Bool True if dimenstions are OK.
  */
 bool
 H(Eigen::MatrixXd M){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::H] Setting H_");
+
     if(M.cols() == NUM_STATES && M.rows() == NUM_MEASUREMENTS){
         H_.resize(NUM_MEASUREMENTS, NUM_STATES);
         H_ = M;
@@ -732,6 +790,9 @@ Q(void)
 bool
 Q(Eigen::MatrixXd M)
 {
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::Q] setting Q_");
+
     if (M.cols() == NUM_STATES && M.rows()==NUM_STATES){
         Q_.resize(NUM_STATES,NUM_STATES);
         Q_=M;
@@ -748,6 +809,9 @@ Q(Eigen::MatrixXd M)
  */
 bool
 Q(std::vector<double> v){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::Q] Setting diagonal Q_ ");
+
     if((unsigned int)v.size()!=NUM_STATES){
         ROS_ERROR("[ConstantAccelModel::Q] Input vector size != NUM_STATES, v.size = %d", v.size());
         return false;
@@ -755,7 +819,10 @@ Q(std::vector<double> v){
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
     for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
 
+    Q_.resize(NUM_STATES,NUM_STATES);
     Q_ = temp.asDiagonal();
+    if(debug_)
+        std::cout << "Q_=" << std::endl << Q_ << std::endl;
     return true;
 }
 
@@ -777,6 +844,9 @@ R(void)
 bool
 R(Eigen::MatrixXd M)
 {
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::R] Setting R_ from a matrix");
+
     if (M.rows() == NUM_MEASUREMENTS && M.cols() == NUM_MEASUREMENTS){
         R_.resize(NUM_MEASUREMENTS,NUM_MEASUREMENTS);
         R_ = M;
@@ -793,14 +863,20 @@ R(Eigen::MatrixXd M)
  */
 bool
 R(std::vector<double> v){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::R] Setting diagonal R_ from a vector");
+
     if((unsigned int)v.size()!=NUM_MEASUREMENTS){
         ROS_ERROR("[ConstantAccelModel::R] Input vector size != NUM_MEASUREMENTS, v.size = %d", v.size());
         return false;
     }
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);
-    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+    for (int i=0; i< NUM_MEASUREMENTS; i++) temp(i) = v[i];
 
+    R_.resize(NUM_MEASUREMENTS, NUM_MEASUREMENTS);
     R_ = temp.asDiagonal();
+    if(debug_)
+        std::cout << "R_=" << std::endl << R_ << std::endl;
     return true;
 }
 
@@ -822,9 +898,15 @@ P(void)
 bool
 P(Eigen::MatrixXd M)
 {
+    if(debug_){
+        ROS_INFO("[ConstantAccelModel::P] Setting P from a matrix");
+    }
+
     if (M.rows() == NUM_STATES && M.cols() == NUM_STATES){
         P_.resize(NUM_STATES,NUM_STATES);
-        P_ = M;
+        P_ = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);//M;
+        if(debug_)
+            std::cout << "P: " << std::endl << P_<< std::endl;
         return true;
     }
     else
@@ -862,9 +944,15 @@ x(Eigen::VectorXd v){
  * @return kf_state Predicted state (includes time, state, covariance)
  */
 kf_state
-predictX(kf_state s, int dt){
+predictX(kf_state s, double dt){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::predictX] Predicting x");
+
+    if (dt <= 0)
+        return s;
+
     kf_state xx;
-    xx.time_stamp = current_t_ + ros::Duration(dt);
+    xx.time_stamp = s.time_stamp + ros::Duration(dt);
 
     auto FF = F(dt);
     xx.P = FF*s.P*FF.transpose()+Q_;
@@ -880,8 +968,11 @@ predictX(kf_state s, int dt){
  */
 kf_state
 updateX(sensor_measurement z, kf_state s){
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::updateX] Updating x");
+
     kf_state xx;
-    xx.time_stamp = z.time_stamp;
+    xx.time_stamp = z.time_stamp; //z.time_stamp;
 
     auto y = z.z - h(s.x); // innovation
     auto S = H()*s.P*H().transpose() + R_; // innovation covariance
@@ -900,15 +991,40 @@ updateX(sensor_measurement z, kf_state s){
  */
 double
 logLikelihood(kf_state xx, sensor_measurement z){
-   auto y_hat = z.z - h(xx.x); // innovation
-   auto S = R_ + H()*xx.P*H().transpose(); // innovation covariance
-   double LL = -0.5 * (y_hat.transpose() * S.inverse() * y_hat + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
+    if(debug_){
+        ROS_INFO("[ConstantAccelModel::logLikelihood] Calculating logLikelihood");
+        std::cout << "x: \n" << xx.x << "\n";
+        std::cout << "z: \n" << z.z << "\n";
+    }
 
-   return LL;
+    Eigen::VectorXd y_hat; //z.z - h(xx.x); // innovation
+    y_hat = z.z - h(xx.x); // innovation
+    if(debug_) ROS_INFO("[ConstantAccelModel::logLikelihood] Size of y_hat = (%d,%d)", y_hat.rows(),y_hat.cols());
+    if(debug_) std::cout << "y_hat: \n" << y_hat << "\n";
+
+    Eigen::MatrixXd S;
+    S = R_ + H()*xx.P*H().transpose(); // innovation covariance
+    if(debug_) ROS_INFO("[ConstantAccelModel::logLikelihood] Size of S = (%d,%d)", S.rows(),S.cols());
+    if(debug_) std::cout << "S: \n" << S << "\n";
+
+    auto S_inv = S.inverse();
+    if (debug_) std::cout << "S_inv \n" << S_inv << "\n";
+    auto tmp = y_hat.transpose()*S_inv*y_hat;
+    if(debug_) std::cout << "value of y_hat.transpose() * S_inv * y_hat: \n" << tmp << "\n";
+
+    double LL = -0.5 * (tmp + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
+
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::logLikelihood] Done computing logLikelihood. L= %f", LL);
+
+    return LL;
 }
 
 kf_state
 initStateFromMeasurements(sensor_measurement z){
+
+    if(debug_)
+        ROS_INFO("[ConstantAccelModel::initStateFromMeasurements] Initializing state from measurements");
 
     kf_state state;
     state.time_stamp = z.time_stamp;
