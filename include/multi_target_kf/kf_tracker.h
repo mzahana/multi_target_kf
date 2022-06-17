@@ -54,6 +54,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "multi_target_kf/models.h"
 
+#include <mutex>          // std::mutex
+#include <thread> // std::this_thread::get_id()
+
 //using namespace std;
 // using namespace Eigen;
 
@@ -123,6 +126,8 @@ private:
    ConstantAccelModel kf_model_; /* Constant acceleration KF model */
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
+   std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
+
    
 
    bool debug_; /**< for printing debug message */
@@ -174,11 +179,14 @@ private:
    // void apriltagsCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr& msg);
 
 
-   void publishTracks(void);
+   void publishCertainTracks(void);
+   void publishAllTracks(void);
 
    ros::Publisher state_pub_;
-   ros::Publisher poses_pub_; /**< ROS publisher for KF estimated tracks positions */
-   ros::Publisher tracks_pub_;/**< ROS publisher for KF estimated tracks positions, ucing custom KFTracks.msg */
+   ros::Publisher poses_pub_; /**< ROS publisher for KF estimated (certain) tracks positions */
+   ros::Publisher all_poses_pub_; /**< ROS publisher for KF estimated  (ALL) tracks positions */
+   ros::Publisher certain_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
+   ros::Publisher all_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
    ros::Subscriber pose_sub_; /**< Subscriber to measurments. */
    ros::Subscriber pose_array_sub_; /**< Subscriber to measurments. */
    ros::Subscriber apriltags_sub_; /**< Subscriber to apriltags detections (requires apriltag_ros pkg). */

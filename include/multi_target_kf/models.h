@@ -904,7 +904,7 @@ P(Eigen::MatrixXd M)
 
     if (M.rows() == NUM_STATES && M.cols() == NUM_STATES){
         P_.resize(NUM_STATES,NUM_STATES);
-        P_ = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);//M;
+        P_ = M;
         if(debug_)
             std::cout << "P: " << std::endl << P_<< std::endl;
         return true;
@@ -957,6 +957,14 @@ predictX(kf_state s, double dt){
     auto FF = F(dt);
     xx.P = FF*s.P*FF.transpose()+Q_;
     xx.x = f(s.x, dt);
+
+    // if(debug_){
+    //     std::cout << "[predictX] old P = \n" << s.P << "\n";
+    //     std::cout << "[predictX] old x = \n" << s.x << "\n";
+
+    //     std::cout << "[predictX] new P = \n" << xx.P << "\n";
+    //     std::cout << "[predictX] new x = \n" << xx.x << "\n";
+    // }
     
     return xx;
 }
@@ -991,26 +999,23 @@ updateX(sensor_measurement z, kf_state s){
  */
 double
 logLikelihood(kf_state xx, sensor_measurement z){
-    if(debug_){
-        ROS_INFO("[ConstantAccelModel::logLikelihood] Calculating logLikelihood");
-        std::cout << "x: \n" << xx.x << "\n";
-        std::cout << "z: \n" << z.z << "\n";
-    }
+    // if(debug_){
+    //     ROS_INFO("[ConstantAccelModel::logLikelihood] Calculating logLikelihood");
+    //     std::cout << "x: \n" << xx.x << "\n";
+    //     std::cout << "z: \n" << z.z << "\n";
+    // }
 
     Eigen::VectorXd y_hat; //z.z - h(xx.x); // innovation
     y_hat = z.z - h(xx.x); // innovation
-    if(debug_) ROS_INFO("[ConstantAccelModel::logLikelihood] Size of y_hat = (%d,%d)", y_hat.rows(),y_hat.cols());
-    if(debug_) std::cout << "y_hat: \n" << y_hat << "\n";
+    // if(debug_) std::cout << "y_hat: \n" << y_hat << "\n";
 
     Eigen::MatrixXd S;
     S = R_ + H()*xx.P*H().transpose(); // innovation covariance
-    if(debug_) ROS_INFO("[ConstantAccelModel::logLikelihood] Size of S = (%d,%d)", S.rows(),S.cols());
-    if(debug_) std::cout << "S: \n" << S << "\n";
+    // if(debug_) std::cout << "S: \n" << S << "\n";
 
     auto S_inv = S.inverse();
-    if (debug_) std::cout << "S_inv \n" << S_inv << "\n";
+    // if (debug_) std::cout << "S_inv \n" << S_inv << "\n";
     auto tmp = y_hat.transpose()*S_inv*y_hat;
-    if(debug_) std::cout << "value of y_hat.transpose() * S_inv * y_hat: \n" << tmp << "\n";
 
     double LL = -0.5 * (tmp + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
 
