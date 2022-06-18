@@ -144,6 +144,7 @@ void KFTracker::predictTracks(void)
    // for(int i=0; i < tracks_.size(); i++)
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
+      int i = it - tracks_.begin();
       (*it).current_state = kf_model_.predictX((*it).current_state, dt_pred_);
       // (*it).current_state.time_stamp = (*it).current_state.time_stamp + ros::Duration(dt_pred_);
       // (*it).current_state.x = kf_model_.f((*it).current_state.x, dt_pred_); // state
@@ -157,18 +158,149 @@ void KFTracker::predictTracks(void)
 
    if(debug_)
       ROS_INFO("[KFTracker::predictTracks] Done predicting tracks.");
-
+   
    return;
 }
 
 
+void KFTracker::updateTracks2(ros::Time t)
+{
+   if(debug_)
+      ROS_INFO("[KFTracker::updateTracks] Thred id: %d", std::this_thread::get_id());
+
+   // Sanity checks
+
+   if(tracks_.empty())
+      return;
+
+   auto z = measurement_set_;
+
+   if(z.empty())
+   {
+      if(debug_){
+         ROS_WARN_THROTTLE(1.0, "[updateTracks] No available measurements. Skipping update step.");
+      }
+      return;
+   }
+
+    // check if we got new measurement
+    auto z_t = z[0].time_stamp.toSec();
+   if (z_t <= last_measurement_t_.toSec())
+   {
+      if(debug_)
+         ROS_WARN_THROTTLE(1.0, "[updateTracks] No new measurment. Skipping KF update step.");
+      return;
+   }
+   last_measurement_t_ = z[0].time_stamp;
+
+    /* ------------ state-measurements association --------------- */
+   for(auto it_z=z.begin(); it_z != z.end(); it_z++){
+      int z_idx = it_z - z.begin();
+
+
+
+      double max_LL = -99999.0; // Start with very low number for the log-likelihood
+      int best_track_idx = -1;
+      for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
+         int t_idx = it_t - tracks_.begin();
+
+         bool found_closest_state = false;
+         for (int k=(*it_t).buffer.size()-1 ; k >=0 ; k--) // start from the last state in the buffer, should have the biggest/latest time stamp
+         {
+            auto x_t = (*it_t).buffer[k].time_stamp.toSec(); // time of the k-th state in the buffer
+            if( z_t >= x_t)
+            {
+               (*it_t).current_state.time_stamp = (*it_t).buffer[k].time_stamp;
+               (*it_t).current_state.x = (*it_t).buffer[k].x;
+               (*it_t).current_state.P = (*it_t).buffer[k].P;
+               (*it_t).buffer.erase((*it_t).buffer.begin(), (*it_t).buffer.begin()+k);
+               found_closest_state = true;
+
+               // compute the loglikliehood
+               double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
+               if (LL > max_LL) max_LL=LL;
+
+               break;
+            }
+         } // end loop over bufferd state in this track
+
+         if (found_closest_state) {best_track_idx = t_idx;}
+         else{
+            // Update KF estimate (of the ones with no association) to the current time t
+            auto dt = t.toSec() - (*it_t).current_state.time_stamp.toSec();
+            (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
+            (*it_t).buffer.push_back((*it_t).current_state);
+            if((*it_t).buffer.size() > state_buffer_size_)
+               (*it_t).buffer.erase((*it_t).buffer.begin());
+         }
+
+      } // done looping over available tracks
+
+      // update the associated tracks with measurement
+      if(best_track_idx >=0 ){
+         if(max_LL > l_threshold_)
+         {
+            // Do KF update step for the matched track
+            tracks_[best_track_idx].current_state = kf_model_.updateX((*it_z), tracks_[best_track_idx].current_state);
+            tracks_[best_track_idx].n += 1;
+
+            if(debug_){
+               ROS_INFO("[updateTracks2] Associated measurement %d with track %d.", z_idx, best_track_idx);
+               ROS_INFO("[updateTracks2] Number of measurements of track %d = %d", best_track_idx, tracks_[best_track_idx].n);
+            }
+
+            // Remove measurement
+            z.erase(it_z--);
+         }
+         else{
+            if(debug_)
+               ROS_WARN("Could not do measurement association for track %d. Log-likelihood = %f", best_track_idx, max_LL);
+         }
+      }
+
+   } // done looping over all  measurements
+
+   /* ------------ END OF state-measurements association --------------- */
+
+   // Add remaining measurements as new tracks
+   if(!z.empty())
+   {
+      for (auto it = z.begin(); it != z.end(); it++)
+      {
+         kf_state state;
+         state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
+         state.x.block(0,0,3,1) = (*it).z;
+         state.x.block(3,0,kf_model_.numStates()-3,1) = 0.000001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+
+         state.P = kf_model_.Q();
+         state.P.block(0,0,3,3) = kf_model_.R();
+         state.time_stamp = (*it).time_stamp;
+         
+         kf_track new_track;
+         new_track.id = (*it).id;
+         new_track.current_state = state;
+         new_track.n = 1;
+         new_track.buffer.push_back(state);
+
+         tracks_.push_back(new_track);
+         // if(debug_){
+            ROS_WARN( "******* New track is added ******* ");
+         // }
+      }
+
+   }
+
+   
+
+}
 
 void KFTracker::updateTracks(ros::Time t)
 {
    if(debug_)
       ROS_INFO("[KFTracker::updateTracks] Thred id: %d", std::this_thread::get_id());
    
-   // Sanity check
+   // Sanity checks
+
    if(tracks_.empty())
       return;
 
@@ -199,6 +331,9 @@ void KFTracker::updateTracks(ros::Time t)
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    //for(int i = 0; i< tracks_.size(); i++)
    {
+      if(z.empty()) // because size of z can change, and can get empty, inside this loop!
+         break;
+
       int track_idx = it - tracks_.begin();
       // find closest predicted state in time
       //auto buf_size = (*it).buffer.size()
@@ -259,10 +394,10 @@ void KFTracker::updateTracks(ros::Time t)
             // Remove measurement
             z.erase(z.begin()+m_index);
 
-            if(debug_){
+            // if(debug_){
                ROS_INFO("[updateTracks] Associated measurement %d with track %d.", m_index, track_idx);
                ROS_INFO("[updateTracks] Number of measurements of track %d = %d", track_idx, (*it).n);
-            }
+            // }
          }
          else{
             if(debug_)
@@ -276,6 +411,10 @@ void KFTracker::updateTracks(ros::Time t)
          // (*it).current_state.time_stamp = final_x.time_stamp;
          // (*it).current_state.x = final_x.x;
          // (*it).current_state.P = final_x.P;
+         // update buffer
+         (*it).buffer.push_back((*it).current_state);
+         if((*it).buffer.size() > state_buffer_size_)
+            (*it).buffer.erase((*it).buffer.begin());
       }
       else{
          if(debug_)
@@ -287,6 +426,9 @@ void KFTracker::updateTracks(ros::Time t)
          // (*it).current_state.time_stamp = final_x.time_stamp;
          // (*it).current_state.x = final_x.x;
          // (*it).current_state.P = final_x.P;
+         (*it).buffer.push_back((*it).current_state);
+         if((*it).buffer.size() > state_buffer_size_)
+            (*it).buffer.erase((*it).buffer.begin());
       }    
 
       
@@ -314,13 +456,36 @@ void KFTracker::updateTracks(ros::Time t)
          new_track.buffer.push_back(state);
 
          tracks_.push_back(new_track);
-         if(debug_){
+         if(debug_)
             ROS_WARN( "******* New track is added ******* ");
-         }
+         
       }
 
    }
 
+}
+
+void KFTracker::removeUncertainTracks(){
+   if(tracks_.empty())
+      return;
+
+   for (auto it = tracks_.begin(); it != tracks_.end(); it++)
+   {
+      int i = it - tracks_.begin();
+      // Calculate position uncertainty of this track
+      auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
+      auto V = sqrt(std::fabs(P_p.determinant()));
+      ROS_WARN( "[KFTracker::removeUncertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);      
+
+      // Remove tracks with high uncertainty
+      if(V > V_max_)
+      {
+         if(debug_)
+            ROS_WARN( "[KFTracker::removeUncertainTracks] Track %d uncertainty = %f is high (> %f). Removing it.", i, V, V_max_);
+         
+         tracks_.erase(it--);
+      }
+   }  
 }
 
 void KFTracker::updateCertainTracks(void)
@@ -335,9 +500,12 @@ void KFTracker::updateCertainTracks(void)
    certain_tracks_.clear();
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
+      int i = it - tracks_.begin();
       // Calculate uncertainty of this track
       auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
       auto V = sqrt(std::fabs(P_p.determinant()));
+      if(debug_)
+         ROS_WARN( "[KFTracker::updateCertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);
       // If certainty is acceptable, add it to certain_tracks_
       if (V <= V_certain_ && (*it).n >= N_meas_)
       {
@@ -348,15 +516,6 @@ void KFTracker::updateCertainTracks(void)
          if(debug_){
             ROS_WARN("Track is not considered certain. V = %f, N = %d", V, (*it).n);
          }
-      }
-      
-
-      // Remove tracks with high uncertainty
-      if(V > V_max_)
-      {
-         if(debug_)
-            ROS_WARN( "[Update step] Track uncertainty = %f is high (> %f). Removing it.", V, V_max_);
-         tracks_.erase(it--);
       }
    }
 }
@@ -379,8 +538,6 @@ void KFTracker::poseArrayCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
       // measurement_set_mtx_.unlock();
       return;
    }
-
-   // measurement_set_.resize(msg->poses.size());
 
    for (auto it = msg->poses.begin(); it != msg->poses.end(); it++)
    {
@@ -529,6 +686,8 @@ void KFTracker::publishAllTracks(void)
       return;
    }
 
+   // ROS_WARN("[KFTracker::publishAllTracks] Number of all tracks: %d", tracks_.size());
+
    geometry_msgs::Pose pose;
    geometry_msgs::PoseArray pose_array;
    multi_target_kf::KFTrack track_msg;
@@ -611,7 +770,7 @@ void KFTracker::initTracks(void)
       state.x.resize(kf_model_.numStates(),1);
       state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
       state.x.block(0,0,3,1) = z[i].z; // 3D position
-      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.000001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.01*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
       state.P = kf_model_.Q();
       state.P.block(0,0,3,3) = kf_model_.R();
@@ -651,7 +810,10 @@ void KFTracker::filterLoop(const ros::TimerEvent& event)
    predictTracks();
 
    // Do correction step for all tracks using latest measurements.
-   updateTracks(ros::Time::now());
+   // updateTracks(ros::Time::now());
+   updateTracks2(ros::Time::now());
+
+   removeUncertainTracks();
 
    // Publish all available tracks
    publishAllTracks();

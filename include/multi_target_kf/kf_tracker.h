@@ -151,11 +151,18 @@ private:
     */
    void updateTracks(ros::Time t);
 
+   void updateTracks2(ros::Time t);
+
    /**
     * @brief Extract tracks with high certainty from the current tracks.
     * Uses tracks_ and updates certain_tracks_ 
     */
    void updateCertainTracks(void);
+
+   /**
+    * @brief Removes tracks  (from tracks_ ) with position uncertainty > V_max__ 
+    */
+   void removeUncertainTracks(void);
 
 
    /**

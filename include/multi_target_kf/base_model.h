@@ -30,11 +30,61 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef MODELS_H
-#define MODELS_H
+#ifndef BASE_MODEL_H
+#define BASE_MODEL_H
 
-#include "multi_target_kf/constant_accel.h"
-#include "multi_target_kf/dubins_model.h"
+#include <ros/ros.h>
+#include <math.h>  // log
+
+#include <Eigen/Dense>
 
 
-#endif //MODELS_H
+
+/**
+ * Structure to store the current stamped KF prediction
+ */
+struct kf_state
+{
+   ros::Time time_stamp;
+   Eigen::VectorXd x; // State estimate
+   Eigen::MatrixXd P; // State estimate covariance
+};
+
+/**
+ * Structure to store current stamped sensor measurement.
+ */
+struct sensor_measurement
+{
+   ros::Time time_stamp;
+   unsigned int id; /**< OPtional. Associated measurement ID, e.g. Apriltag ID */
+   Eigen::VectorXd z; /**< Measurements, e.g. 3D position, velocity, ... etc */
+   Eigen::MatrixXd R; /* Measurement covariance matrix */
+};
+
+
+/**
+ * @brief Base class that contains all common members and functions for all models.
+ * @todo Needs implementation
+ */
+class BaseModel
+{
+protected:
+
+Eigen::MatrixXd F_; /* State transition jacobian matrix */
+Eigen::MatrixXd H_; /* Observation jacobian matrix */
+Eigen::MatrixXd Q_; /** Process covariance matrix */
+Eigen::MatrixXd P_; /* State covariance estimate */
+Eigen::MatrixXd R_; /** Measurements covariance matrix */
+Eigen::VectorXd x_; /* Current state vector [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed] */
+const unsigned int NUM_STATES=8; /* State dimension */
+const unsigned int NUM_MEASUREMENTS=8; /* Measurements dimension */
+double dt_; /* Prediction sampling time */
+ros::Time current_t_; /* Current time stamp */
+
+public:
+BaseModel(){}
+~BaseModel(){}
+
+};
+
+#endif //BASE_MODEL_H
