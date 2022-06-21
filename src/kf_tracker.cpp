@@ -172,7 +172,7 @@ void KFTracker::predictTracks(void)
 void KFTracker::updateTracks3(ros::Time t)
 {
    if(debug_)
-      ROS_INFO("[KFTracker::updateTracks3] Thred id: %d", std::this_thread::get_id());
+      ROS_INFO("[KFTracker::updateTracks3] Thread id: %d", std::this_thread::get_id());
 
    // Sanity checks
 
@@ -198,6 +198,65 @@ void KFTracker::updateTracks3(ros::Time t)
       return;
    }
    last_measurement_t_ = z[0].time_stamp;
+
+   /** @todo build logliklihood matrix to be passed to the Hungarian algorithm */
+   std::vector< std::vector<double> > cost_mat;
+   for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
+      std::vector<double> row;
+
+      for(auto it_z=z.begin(); it_z != z.end(); it_z++){
+
+         // double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
+
+      }
+
+   }
+
+   /** @todo  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
+   std::vector<int> assignment;
+
+   // double cost = HungAlgo.Solve(costMatrix, assignment);
+   double cost = HungAlgo_.Solve(cost_mat, assignment);
+
+   /** @todo apply KF update step for each track, if it's assigned a measurement, and then predict to the current time step
+    * If a track is not assigned a measurement, predict it to the current time step
+    * Remove measurements that are already assigned to tracks, after they are used to update their assigned tracks.
+   */
+   for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
+      int tr_idx = it_t - tracks_.begin();
+      
+      bool found_closest_state = false;
+      for (int k=(*it_t).buffer.size()-1 ; k >=0 ; k--) // start from the last state in the buffer, should have the biggest/latest time stamp
+      {
+      auto x_t = (*it_t).buffer[k].time_stamp.toSec(); // time of the k-th state in the buffer
+         if( z_t >= x_t)
+         {
+            (*it_t).current_state.time_stamp = (*it_t).buffer[k].time_stamp;
+            (*it_t).current_state.x = (*it_t).buffer[k].x;
+            (*it_t).current_state.P = (*it_t).buffer[k].P;
+            (*it_t).buffer.erase((*it_t).buffer.begin(), (*it_t).buffer.begin()+k);
+            found_closest_state = true;
+
+            break;
+         }
+
+      } // end loop over bufferd state in this track
+
+      // Apply state correction
+      if (found_closest_state){
+         if (assignment[tr_idx] > -1){
+            (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
+            (*it_t).n += 1;
+         }
+      }
+      else{ /** @todo just predict to the current time since we didn't find a close state in the buffer  */
+
+      }
+   }
+
+   /** @todo  If there are reamining measurements, use add them as new tracks. */
+
+   // DONE
 
 }
 

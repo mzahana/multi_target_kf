@@ -54,6 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "multi_target_kf/models.h"
 
+#include "multi_target_kf/hungarian2.h" // For state measurement assignment
+
 #include <mutex>          // std::mutex
 #include <thread> // std::this_thread::get_id()
 
@@ -127,6 +129,8 @@ private:
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
+
+   HungarianAlgorithm HungAlgo_; /** Hungarian algorithm object for state-measurement assignment */
 
    
 
