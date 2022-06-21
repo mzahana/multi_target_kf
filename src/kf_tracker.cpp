@@ -145,6 +145,10 @@ void KFTracker::predictTracks(void)
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
       int i = it - tracks_.begin();
+
+      if(debug_)
+         ROS_INFO("[KFTracker::predictTracks] Predicting track %d", i);
+
       (*it).current_state = kf_model_.predictX((*it).current_state, dt_pred_);
       // (*it).current_state.time_stamp = (*it).current_state.time_stamp + ros::Duration(dt_pred_);
       // (*it).current_state.x = kf_model_.f((*it).current_state.x, dt_pred_); // state
@@ -154,14 +158,48 @@ void KFTracker::predictTracks(void)
       (*it).buffer.push_back((*it).current_state);
       if((*it).buffer.size() > state_buffer_size_)
          (*it).buffer.erase((*it).buffer.begin());
+
+      if(debug_)
+         ROS_INFO("[KFTracker::predictTracks] Done predicting track %d", i);
    }
 
    if(debug_)
-      ROS_INFO("[KFTracker::predictTracks] Done predicting tracks.");
+      ROS_INFO("[KFTracker::predictTracks] Done predicting all tracks.");
    
    return;
 }
 
+void KFTracker::updateTracks3(ros::Time t)
+{
+   if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Thred id: %d", std::this_thread::get_id());
+
+   // Sanity checks
+
+   if(tracks_.empty())
+      return;
+
+   auto z = measurement_set_;
+
+   if(z.empty())
+   {
+      if(debug_){
+         ROS_WARN_THROTTLE(1.0, "[updateTracks3] No available measurements. Skipping update step.");
+      }
+      return;
+   }
+
+    // check if we got new measurement
+    auto z_t = z[0].time_stamp.toSec();
+   if (z_t <= last_measurement_t_.toSec())
+   {
+      if(debug_)
+         ROS_WARN_THROTTLE(1.0, "[updateTracks3] No new measurment. Skipping KF update step.");
+      return;
+   }
+   last_measurement_t_ = z[0].time_stamp;
+
+}
 
 void KFTracker::updateTracks2(ros::Time t)
 {
@@ -770,7 +808,7 @@ void KFTracker::initTracks(void)
       state.x.resize(kf_model_.numStates(),1);
       state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
       state.x.block(0,0,3,1) = z[i].z; // 3D position
-      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.01*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
       state.P = kf_model_.Q();
       state.P.block(0,0,3,3) = kf_model_.R();

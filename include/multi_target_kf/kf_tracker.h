@@ -152,6 +152,7 @@ private:
    void updateTracks(ros::Time t);
 
    void updateTracks2(ros::Time t);
+   void updateTracks3(ros::Time t);
 
    /**
     * @brief Extract tracks with high certainty from the current tracks.
