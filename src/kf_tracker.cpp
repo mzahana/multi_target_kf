@@ -201,8 +201,10 @@ void KFTracker::updateTracks3(ros::Time t)
    last_measurement_t_ = z[0].time_stamp;
 
    /** @todo build logliklihood matrix to be passed to the Hungarian algorithm */
+   if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Building logliklihood matrix...");
    // std::vector< std::vector<double> > cost_mat; cost_mat.resize(tracks_.size());
-   Eigen::MatrixXd costMat_eig(tracks_.size(), z.size());
+   Eigen::MatrixXd LL_mat(tracks_.size(), z.size());
    for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin(); // track index      
       // First, check if there is close state in time
@@ -227,10 +229,14 @@ void KFTracker::updateTracks3(ros::Time t)
       for(auto it_z=z.begin(); it_z != z.end(); it_z++){
          int z_idx = it_z - z.begin(); // measurement index
          double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
-         if (LL >= l_threshold_ && found_closest_state) costMat_eig(tr_idx, z_idx) = LL; //row.push_back(-1.0*LL);
-         else  costMat_eig(tr_idx, z_idx) = -1.0*INFINITY;
+         if (LL >= l_threshold_ && found_closest_state) LL_mat(tr_idx, z_idx) = LL;
+         else  LL_mat(tr_idx, z_idx) = -999999.0;
       }
 
+   }
+   if(debug_){
+      ROS_INFO("[KFTracker::updateTracks3] Done building logliklihood matrix");
+      std::cout << "Logliklihood matrix: \n" << LL_mat << "\n";
    }
 
    /** @todo Post-process the cost matrix
@@ -238,25 +244,49 @@ void KFTracker::updateTracks3(ros::Time t)
     * 2. Hungarian algorithm requires cost matrix with non negative elements only.
     *    So, subtract the minimum element from the matrix resulting from step 1
    */
-  // negate to convert to cost instead of utility
-  costMat_eig = -1.0*costMat_eig;
+  if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Preparing cost matrix for the Hungarian algorithm...");
+  // negate to convert to cost
+  LL_mat = -1.0*LL_mat;
   // subtract minimum value to make sure all the elements are positive
-  costMat_eig = costMat_eig - ( costMat_eig.minCoeff()*Eigen::MatrixXd::Ones(costMat_eig.rows(), costMat_eig.cols()) );
+  LL_mat = LL_mat - ( LL_mat.minCoeff()*Eigen::MatrixXd::Ones(LL_mat.rows(), LL_mat.cols()) );
   std::vector< std::vector<double> > costMat;
   std::vector<double> row;
-  for (int i=0; i< costMat_eig.rows(); i++){
+  for (int i=0; i< LL_mat.rows(); i++){
      row.clear();
-     for(int j=0; j<costMat_eig.cols(); j++){
-        row.push_back(costMat_eig(i,j));
+     for(int j=0; j<LL_mat.cols(); j++){
+        row.push_back(LL_mat(i,j));
      }
      costMat.push_back(row);
   }
+  if(debug_){
+     ROS_INFO("[KFTracker::updateTracks3] Cost matrix is prepared");
+     std::cout << "costMat: \n";
+      for(int ii=0; ii<costMat.size(); ii++){
+         for(int jj=0; jj<costMat[ii].size(); jj++)
+            std::cout << costMat[ii][jj] << " "  ;
+      }
+      std::cout << "\n";
+  }
 
    /** @todo  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
-   std::vector<int> assignment; // size of tracks_
+   if(debug_){
+      ROS_INFO("[KFTracker::updateTracks3] Executing Hungarian algorithm...");      
+   }
+   
+   std::vector<int> assignment; // Assignment vector, has size of tracks_
    double cost = HungAlgo_.Solve(costMat, assignment);
+   if(debug_){
+      ROS_INFO("[KFTracker::updateTracks3] Hungarian algorithm is executed");
+      std::cout << "Assignment vector: \n";
+      for(int i=0; i<assignment.size(); i++){
+         std::cout << assignment[i] << " ";
+      }
+      std::cout << "\n";
+   }
 
    // vector to mark the assigned measurements. 1 if assigned, 0 otherwise
+   // This will be used to add the non-assigned measurement(s) as new track(s)
    // size of z
    Eigen::VectorXi assigned_z(z.size()); assigned_z = Eigen::VectorXi::Zero(z.size());
 
@@ -264,47 +294,53 @@ void KFTracker::updateTracks3(ros::Time t)
     * If a track is not assigned a measurement, just predict it to the current time step
     * Remove measurements that are already assigned to tracks, after they are used to update their assigned tracks.
    */
+
+   if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Adding new tracks using non-assigned measurements");
    for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin();
 
       
       // Apply state correction
       if (assignment[tr_idx] > -1){
-         assigned_z(assignment[tr_idx]) = 1;
-         // correct/update track
-         (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
-         (*it_t).n += 1;
-         (*it_t).buffer.push_back((*it_t).current_state);
-         if((*it_t).buffer.size() > state_buffer_size_)
-            (*it_t).buffer.erase((*it_t).buffer.begin());
 
-         // predict to the current time stamp
-         double dt = (*it_t).current_state.time_stamp.toSec() - t.toSec();
-         (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
-         (*it_t).buffer.push_back((*it_t).current_state);
-         if((*it_t).buffer.size() > state_buffer_size_)
-            (*it_t).buffer.erase((*it_t).buffer.begin());
+         // we have to double check the assigned measurement is not bad!
+         // because hungarian algorithm will just do matching without respecting any threshold
+         double LL = kf_model_.logLikelihood((*it_t).current_state, z[assignment[tr_idx]]);
+         if(LL >= l_threshold_){
+            assigned_z(assignment[tr_idx]) = 1;
+            // correct/update track
+            (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
+            (*it_t).n += 1;
+            (*it_t).buffer.push_back((*it_t).current_state);
+            if((*it_t).buffer.size() > state_buffer_size_)
+               (*it_t).buffer.erase((*it_t).buffer.begin());
+         }
       }
-      else{// just predict to the current time stamp
-         double dt = (*it_t).current_state.time_stamp.toSec() - t.toSec();
-         (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
-         (*it_t).buffer.push_back((*it_t).current_state);
-         if((*it_t).buffer.size() > state_buffer_size_)
-            (*it_t).buffer.erase((*it_t).buffer.begin());
-      }
+
+      // predict to the current time stamp
+      double dt = t.toSec() - (*it_t).current_state.time_stamp.toSec();
+      (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
+      (*it_t).buffer.push_back((*it_t).current_state);
+      if((*it_t).buffer.size() > state_buffer_size_)
+         (*it_t).buffer.erase((*it_t).buffer.begin());
 
 
    }
+
+   if(debug_)
+      std::cout << "[updateTracks3] assigned_z vector: \n" << assigned_z << "\n";
 
    /** @todo  If there are reamining measurements, use add them as new tracks. */
    for( int m=0; m<z.size(); m++){
       if(assigned_z(m) > 0) continue; // this measurement is assigned, so skip it
       kf_state state;
+      state.x.resize(kf_model_.numStates(),1);
       state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
       state.x.block(0,0,3,1) = z[m].z;
-      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.000001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0*Eigen::MatrixXd::Zero(kf_model_.numStates()-3,1);
 
-      state.P = kf_model_.Q();
+      state.P = kf_model_.Q(dt_pred_);
       state.P.block(0,0,3,3) = kf_model_.R();
       state.time_stamp = z[m].time_stamp;
       
@@ -315,9 +351,10 @@ void KFTracker::updateTracks3(ros::Time t)
       new_track.buffer.push_back(state);
 
       tracks_.push_back(new_track);
-      if(debug_){
+      // if(debug_){
          ROS_WARN( "******* New track is added using a non-assigned measurement: %d ******* ", m);
-      }      
+         std::cout << "[updateTracks3] State of new added track: \n" << new_track.current_state.x << "\n";
+      // }      
    }
 
    // DONE
@@ -636,13 +673,16 @@ void KFTracker::removeUncertainTracks(){
       // Calculate position uncertainty of this track
       auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
       auto V = sqrt(std::fabs(P_p.determinant()));
-      ROS_WARN( "[KFTracker::removeUncertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);      
+      if(debug_)
+         ROS_WARN( "[KFTracker::removeUncertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);      
 
       // Remove tracks with high uncertainty
-      if(V > V_max_)
+      if(V > V_max_ || isinf( (*it).current_state.x.norm() ))
       {
-         if(debug_)
+         if(debug_){
             ROS_WARN( "[KFTracker::removeUncertainTracks] Track %d uncertainty = %f is high (> %f). Removing it.", i, V, V_max_);
+            ROS_WARN( "[KFTracker::removeUncertainTracks] Track %d norm(state) = %f", i, (*it).current_state.x.norm());
+         }
          
          tracks_.erase(it--);
       }
@@ -709,7 +749,8 @@ void KFTracker::poseArrayCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
       z.z(0) = (*it).position.x;
       z.z(1) = (*it).position.y;
       z.z(2) = (*it).position.z;
-      if(z.z.norm()> 10000.0)
+      auto nrm = z.z.norm();
+      if(nrm> 10000.0  || isnan(nrm))
       {
          if(debug_)
             ROS_WARN("[poseArrayCallback] Measurement norm is very large %f", z.z.norm());
@@ -931,9 +972,9 @@ void KFTracker::initTracks(void)
       state.x.resize(kf_model_.numStates(),1);
       state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
       state.x.block(0,0,3,1) = z[i].z; // 3D position
-      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
-      state.P = kf_model_.Q();
+      state.P = kf_model_.Q(dt_pred_);
       state.P.block(0,0,3,3) = kf_model_.R();
 
       kf_track track;
@@ -972,7 +1013,7 @@ void KFTracker::filterLoop(const ros::TimerEvent& event)
 
    // Do correction step for all tracks using latest measurements.
    // updateTracks(ros::Time::now());
-   updateTracks2(ros::Time::now());
+   updateTracks3(ros::Time::now());
 
    removeUncertainTracks();
 

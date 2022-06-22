@@ -445,6 +445,9 @@ predictX(kf_state s, double dt){
         return s;
     }
 
+    if(debug_)
+        ROS_INFO("[predictX] det(P) of current state: %f", s.P.determinant());
+
     kf_state xx;
     xx.time_stamp = s.time_stamp + ros::Duration(dt);
 
@@ -452,8 +455,10 @@ predictX(kf_state s, double dt){
     xx.P = FF*s.P*FF.transpose()+Q(dt);
     xx.x = f(s.x, dt);
 
-    if(debug_)
+    if(debug_){
         ROS_INFO("[predictX] ||x_new - x_old|| = %f", (xx.x - s.x).norm());
+        ROS_INFO("[predictX] det(P) of predicted state: %f", xx.P.determinant());
+    }
 
     // if(debug_){
     //     std::cout << "[predictX] old P = \n" << s.P << "\n";
