@@ -190,6 +190,7 @@ void KFTracker::updateTracks3(ros::Time t)
    }
 
     // check if we got new measurement
+    /** @warning Currently, it's assumed that all measurement in the buffer measurement_set_ have the same time stamp */
     auto z_t = z[0].time_stamp.toSec();
    if (z_t <= last_measurement_t_.toSec())
    {
@@ -200,41 +201,22 @@ void KFTracker::updateTracks3(ros::Time t)
    last_measurement_t_ = z[0].time_stamp;
 
    /** @todo build logliklihood matrix to be passed to the Hungarian algorithm */
-   std::vector< std::vector<double> > cost_mat;
+   // std::vector< std::vector<double> > cost_mat; cost_mat.resize(tracks_.size());
+   Eigen::MatrixXd costMat_eig(tracks_.size(), z.size());
    for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
-      std::vector<double> row;
-
-      for(auto it_z=z.begin(); it_z != z.end(); it_z++){
-
-         // double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
-
-      }
-
-   }
-
-   /** @todo  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
-   std::vector<int> assignment;
-
-   // double cost = HungAlgo.Solve(costMatrix, assignment);
-   double cost = HungAlgo_.Solve(cost_mat, assignment);
-
-   /** @todo apply KF update step for each track, if it's assigned a measurement, and then predict to the current time step
-    * If a track is not assigned a measurement, predict it to the current time step
-    * Remove measurements that are already assigned to tracks, after they are used to update their assigned tracks.
-   */
-   for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
-      int tr_idx = it_t - tracks_.begin();
-      
+      int tr_idx = it_t - tracks_.begin(); // track index      
+      // First, check if there is close state in time
       bool found_closest_state = false;
       for (int k=(*it_t).buffer.size()-1 ; k >=0 ; k--) // start from the last state in the buffer, should have the biggest/latest time stamp
       {
-      auto x_t = (*it_t).buffer[k].time_stamp.toSec(); // time of the k-th state in the buffer
+         auto x_t = (*it_t).buffer[k].time_stamp.toSec(); // time of the k-th state in the state-buffer of this track
          if( z_t >= x_t)
          {
+            // make the closest state the current_state, and remove all the future ones if any
             (*it_t).current_state.time_stamp = (*it_t).buffer[k].time_stamp;
             (*it_t).current_state.x = (*it_t).buffer[k].x;
             (*it_t).current_state.P = (*it_t).buffer[k].P;
-            (*it_t).buffer.erase((*it_t).buffer.begin(), (*it_t).buffer.begin()+k);
+            (*it_t).buffer.clear(); (*it_t).buffer.push_back((*it_t).current_state);
             found_closest_state = true;
 
             break;
@@ -242,19 +224,101 @@ void KFTracker::updateTracks3(ros::Time t)
 
       } // end loop over bufferd state in this track
 
-      // Apply state correction
-      if (found_closest_state){
-         if (assignment[tr_idx] > -1){
-            (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
-            (*it_t).n += 1;
-         }
+      for(auto it_z=z.begin(); it_z != z.end(); it_z++){
+         int z_idx = it_z - z.begin(); // measurement index
+         double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
+         if (LL >= l_threshold_ && found_closest_state) costMat_eig(tr_idx, z_idx) = LL; //row.push_back(-1.0*LL);
+         else  costMat_eig(tr_idx, z_idx) = -1.0*INFINITY;
       }
-      else{ /** @todo just predict to the current time since we didn't find a close state in the buffer  */
 
+   }
+
+   /** @todo Post-process the cost matrix
+    * 1. Hungarian algorithm minimizes cost, so first negate the logliklihood matrix
+    * 2. Hungarian algorithm requires cost matrix with non negative elements only.
+    *    So, subtract the minimum element from the matrix resulting from step 1
+   */
+  // negate to convert to cost instead of utility
+  costMat_eig = -1.0*costMat_eig;
+  // subtract minimum value to make sure all the elements are positive
+  costMat_eig = costMat_eig - ( costMat_eig.minCoeff()*Eigen::MatrixXd::Ones(costMat_eig.rows(), costMat_eig.cols()) );
+  std::vector< std::vector<double> > costMat;
+  std::vector<double> row;
+  for (int i=0; i< costMat_eig.rows(); i++){
+     row.clear();
+     for(int j=0; j<costMat_eig.cols(); j++){
+        row.push_back(costMat_eig(i,j));
+     }
+     costMat.push_back(row);
+  }
+
+   /** @todo  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
+   std::vector<int> assignment; // size of tracks_
+   double cost = HungAlgo_.Solve(costMat, assignment);
+
+   // vector to mark the assigned measurements. 1 if assigned, 0 otherwise
+   // size of z
+   Eigen::VectorXi assigned_z(z.size()); assigned_z = Eigen::VectorXi::Zero(z.size());
+
+   /** @todo apply KF update step for each track, if it's assigned a measurement, and then predict to the current time step
+    * If a track is not assigned a measurement, just predict it to the current time step
+    * Remove measurements that are already assigned to tracks, after they are used to update their assigned tracks.
+   */
+   for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
+      int tr_idx = it_t - tracks_.begin();
+
+      
+      // Apply state correction
+      if (assignment[tr_idx] > -1){
+         assigned_z(assignment[tr_idx]) = 1;
+         // correct/update track
+         (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
+         (*it_t).n += 1;
+         (*it_t).buffer.push_back((*it_t).current_state);
+         if((*it_t).buffer.size() > state_buffer_size_)
+            (*it_t).buffer.erase((*it_t).buffer.begin());
+
+         // predict to the current time stamp
+         double dt = (*it_t).current_state.time_stamp.toSec() - t.toSec();
+         (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
+         (*it_t).buffer.push_back((*it_t).current_state);
+         if((*it_t).buffer.size() > state_buffer_size_)
+            (*it_t).buffer.erase((*it_t).buffer.begin());
       }
+      else{// just predict to the current time stamp
+         double dt = (*it_t).current_state.time_stamp.toSec() - t.toSec();
+         (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
+         (*it_t).buffer.push_back((*it_t).current_state);
+         if((*it_t).buffer.size() > state_buffer_size_)
+            (*it_t).buffer.erase((*it_t).buffer.begin());
+      }
+
+
    }
 
    /** @todo  If there are reamining measurements, use add them as new tracks. */
+   for( int m=0; m<z.size(); m++){
+      if(assigned_z(m) > 0) continue; // this measurement is assigned, so skip it
+      kf_state state;
+      state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
+      state.x.block(0,0,3,1) = z[m].z;
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.000001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+
+      state.P = kf_model_.Q();
+      state.P.block(0,0,3,3) = kf_model_.R();
+      state.time_stamp = z[m].time_stamp;
+      
+      kf_track new_track;
+      new_track.id = z[m].id;
+      new_track.current_state = state;
+      new_track.n = 1;
+      new_track.buffer.push_back(state);
+
+      tracks_.push_back(new_track);
+      if(debug_){
+         ROS_WARN( "******* New track is added using a non-assigned measurement: %d ******* ", m);
+      }      
+   }
 
    // DONE
 

@@ -45,18 +45,6 @@ include_directories(
 )
 
 #
-# KF node
-#
-add_library(kf_tracker src/kf_tracker.cpp)
-add_dependencies(kf_tracker ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(kf_tracker ${catkin_LIBRARIES})
-
-add_executable(kf_tracker_node src/kf_tracker_node.cpp)
-add_dependencies(kf_tracker_node kf_tracker ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(kf_tracker_node kf_tracker ${catkin_LIBRARIES})
-
-
-#
 # hungarian
 #
 add_library(hungarian src/hungarian.cpp)
@@ -77,3 +65,14 @@ target_link_libraries(hungarian2 ${catkin_LIBRARIES})
 add_executable(test_hungarian2 tests/test_hungarian2.cpp)
 add_dependencies(test_hungarian2 hungarian2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(test_hungarian2 hungarian2 ${catkin_LIBRARIES})
+
+#
+# KF node
+#
+add_library(kf_tracker src/kf_tracker.cpp)
+add_dependencies(kf_tracker ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(kf_tracker ${catkin_LIBRARIES})
+
+add_executable(kf_tracker_node src/kf_tracker_node.cpp)
+add_dependencies(kf_tracker_node kf_tracker hungarian2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(kf_tracker_node kf_tracker hungarian2 ${catkin_LIBRARIES})
