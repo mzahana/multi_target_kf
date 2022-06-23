@@ -54,6 +54,7 @@ listen_tf_(true),
 do_update_step_(true),
 measurement_off_time_(2.0),
 use_track_id_(false),
+dist_threshold_(2.0),
 debug_(false)
 {
    nh_private_.param<double>("dt_pred", dt_pred_, 0.05);
@@ -73,6 +74,8 @@ debug_(false)
    nh_private.param<std::string>("target_frameid", target_frameid_, "tag");
    nh_private.param<bool>("listen_tf", listen_tf_, true);
    nh_private.param<bool>("use_track_id", use_track_id_, true);
+   nh_private.param<double>("dist_threshold", dist_threshold_, 2.0);
+
 
    if( !nh_private.getParam("q_diag", q_diag_) ){
       ROS_ERROR("Failed to get q_diag parameter");
@@ -169,6 +172,62 @@ void KFTracker::predictTracks(void)
    return;
 }
 
+void KFTracker::updateTracks4(ros::Time t){
+   if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Thread id: %d", std::this_thread::get_id());
+
+   // Sanity checks
+
+   if(tracks_.empty())
+      return;
+
+   auto z = measurement_set_;
+
+   if(z.empty())
+   {
+      // if(debug_)
+         ROS_WARN("[updateTracks3] No available measurements. Skipping update step.");
+      return;
+   }
+
+    // check if we got new measurement
+    /** @warning Currently, it's assumed that all measurement in the buffer measurement_set_ have the same time stamp */
+    auto z_t = z[0].time_stamp.toSec();
+   if (z_t <= last_measurement_t_.toSec())
+   {
+      // if(debug_)
+         ROS_WARN("[updateTracks3] No new measurment. Skipping KF update step.");
+      return;
+   }
+   last_measurement_t_ = z[0].time_stamp;
+
+   for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
+      bool found_closest_state = false;
+      for (int k=(*it_t).buffer.size()-1 ; k >=0 ; k--) // start from the last state in the buffer, should have the biggest/latest time stamp
+      {
+         auto x_t = (*it_t).buffer[k].time_stamp.toSec(); // time of the k-th state in the state-buffer of this track
+         if( z_t >= x_t)
+         {
+            // make the closest state the current_state, and remove all the future ones if any
+            (*it_t).current_state.time_stamp = (*it_t).buffer[k].time_stamp;
+            (*it_t).current_state.x = (*it_t).buffer[k].x;
+            (*it_t).current_state.P = (*it_t).buffer[k].P;
+            (*it_t).buffer.clear(); (*it_t).buffer.push_back((*it_t).current_state);
+            found_closest_state = true;
+
+            (*it_t).current_state = kf_model_.updateX(z[0], (*it_t).current_state);
+            (*it_t).n += 1;
+            (*it_t).buffer.push_back((*it_t).current_state);
+            if((*it_t).buffer.size() > state_buffer_size_)
+               (*it_t).buffer.erase((*it_t).buffer.begin());
+
+            break;
+         }
+
+      } // end loop over bufferd state in this track
+   }
+}
+
 void KFTracker::updateTracks3(ros::Time t)
 {
    if(debug_)
@@ -183,9 +242,8 @@ void KFTracker::updateTracks3(ros::Time t)
 
    if(z.empty())
    {
-      if(debug_){
-         ROS_WARN_THROTTLE(1.0, "[updateTracks3] No available measurements. Skipping update step.");
-      }
+      // if(debug_)
+         ROS_WARN("[updateTracks3] No available measurements. Skipping update step.");
       return;
    }
 
@@ -194,15 +252,15 @@ void KFTracker::updateTracks3(ros::Time t)
     auto z_t = z[0].time_stamp.toSec();
    if (z_t <= last_measurement_t_.toSec())
    {
-      if(debug_)
-         ROS_WARN_THROTTLE(1.0, "[updateTracks3] No new measurment. Skipping KF update step.");
+      // if(debug_)
+         ROS_WARN("[updateTracks3] No new measurment. Skipping KF update step.");
       return;
    }
    last_measurement_t_ = z[0].time_stamp;
 
-   /** @todo build logliklihood matrix to be passed to the Hungarian algorithm */
-   if(debug_)
-      ROS_INFO("[KFTracker::updateTracks3] Building logliklihood matrix...");
+   /** @todo compute loglikelihood matrix to be passed to the Hungarian algorithm */
+   // if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Computing loglikelihood matrix...");
    // std::vector< std::vector<double> > cost_mat; cost_mat.resize(tracks_.size());
    Eigen::MatrixXd LL_mat(tracks_.size(), z.size());
    for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
@@ -228,28 +286,43 @@ void KFTracker::updateTracks3(ros::Time t)
 
       for(auto it_z=z.begin(); it_z != z.end(); it_z++){
          int z_idx = it_z - z.begin(); // measurement index
-         double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
-         if (LL >= l_threshold_ && found_closest_state) LL_mat(tr_idx, z_idx) = LL;
-         else  LL_mat(tr_idx, z_idx) = -999999.0;
+         // double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
+         // if ( (LL >= l_threshold_) && found_closest_state) LL_mat(tr_idx, z_idx) = LL;
+         // else  LL_mat(tr_idx, z_idx) = -9999.0;
+
+         double dist = kf_model_.computeDistance((*it_t).current_state, (*it_z));
+         // if(debug_)
+            ROS_INFO("[KFTracker::updateTracks3] Distance between track %d and measurement %d  = %f", tr_idx, z_idx, dist);
+         if ( (dist <= dist_threshold_) && found_closest_state){
+            LL_mat(tr_idx, z_idx) = dist;
+         }
+         else  LL_mat(tr_idx, z_idx) = 9999.0;
+
+         // if(debug_)
+            ROS_INFO("[KFTracker::updateTracks3] LL_mat(%d,%d) = %f", tr_idx, z_idx, LL_mat(tr_idx, z_idx));
       }
 
-   }
-   if(debug_){
-      ROS_INFO("[KFTracker::updateTracks3] Done building logliklihood matrix");
-      std::cout << "Logliklihood matrix: \n" << LL_mat << "\n";
-   }
+   } // done looping over tracks, and computing the LL_mat
+
+   // if(debug_){
+      ROS_INFO("[KFTracker::updateTracks3] Done computing loglikelihood matrix");
+      std::cout << "loglikelihood matrix: \n" << LL_mat << "\n";
+   // }
 
    /** @todo Post-process the cost matrix
     * 1. Hungarian algorithm minimizes cost, so first negate the logliklihood matrix
     * 2. Hungarian algorithm requires cost matrix with non negative elements only.
     *    So, subtract the minimum element from the matrix resulting from step 1
    */
-  if(debug_)
-      ROS_INFO("[KFTracker::updateTracks3] Preparing cost matrix for the Hungarian algorithm...");
-  // negate to convert to cost
-  LL_mat = -1.0*LL_mat;
-  // subtract minimum value to make sure all the elements are positive
-  LL_mat = LL_mat - ( LL_mat.minCoeff()*Eigen::MatrixXd::Ones(LL_mat.rows(), LL_mat.cols()) );
+   if (false){ //set to true if using loglikelihood instad of distance
+      // if(debug_)
+         ROS_INFO("[KFTracker::updateTracks3] Preparing cost matrix for the Hungarian algorithm...");
+      // negate to convert to cost
+      LL_mat = -1.0*LL_mat;
+      // subtract minimum value to make sure all the elements are positive
+      LL_mat = LL_mat - ( LL_mat.minCoeff()*Eigen::MatrixXd::Ones(LL_mat.rows(), LL_mat.cols()) );
+   }
+  
   std::vector< std::vector<double> > costMat;
   std::vector<double> row;
   for (int i=0; i< LL_mat.rows(); i++){
@@ -259,7 +332,7 @@ void KFTracker::updateTracks3(ros::Time t)
      }
      costMat.push_back(row);
   }
-  if(debug_){
+//   if(debug_){
      ROS_INFO("[KFTracker::updateTracks3] Cost matrix is prepared");
      std::cout << "costMat: \n";
       for(int ii=0; ii<costMat.size(); ii++){
@@ -267,23 +340,23 @@ void KFTracker::updateTracks3(ros::Time t)
             std::cout << costMat[ii][jj] << " "  ;
       }
       std::cout << "\n";
-  }
+//   }
 
    /** @todo  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
-   if(debug_){
+   // if(debug_){
       ROS_INFO("[KFTracker::updateTracks3] Executing Hungarian algorithm...");      
-   }
+   // }
    
    std::vector<int> assignment; // Assignment vector, has size of tracks_
    double cost = HungAlgo_.Solve(costMat, assignment);
-   if(debug_){
+   // if(debug_){
       ROS_INFO("[KFTracker::updateTracks3] Hungarian algorithm is executed");
       std::cout << "Assignment vector: \n";
       for(int i=0; i<assignment.size(); i++){
          std::cout << assignment[i] << " ";
       }
-      std::cout << "\n";
-   }
+      // std::cout << "\n";
+   // }
 
    // vector to mark the assigned measurements. 1 if assigned, 0 otherwise
    // This will be used to add the non-assigned measurement(s) as new track(s)
@@ -295,8 +368,8 @@ void KFTracker::updateTracks3(ros::Time t)
     * Remove measurements that are already assigned to tracks, after they are used to update their assigned tracks.
    */
 
-   if(debug_)
-      ROS_INFO("[KFTracker::updateTracks3] Adding new tracks using non-assigned measurements");
+   // if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Updating tracks using assigned measurements");
    for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin();
 
@@ -306,8 +379,10 @@ void KFTracker::updateTracks3(ros::Time t)
 
          // we have to double check the assigned measurement is not bad!
          // because hungarian algorithm will just do matching without respecting any threshold
-         double LL = kf_model_.logLikelihood((*it_t).current_state, z[assignment[tr_idx]]);
-         if(LL >= l_threshold_){
+         // double LL = kf_model_.logLikelihood((*it_t).current_state, z[assignment[tr_idx]]);
+         double dist = kf_model_.computeDistance((*it_t).current_state, z[assignment[tr_idx]]);
+         if(dist <= dist_threshold_){
+         // if(LL >= l_threshold_){
             assigned_z(assignment[tr_idx]) = 1;
             // correct/update track
             (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
@@ -326,12 +401,14 @@ void KFTracker::updateTracks3(ros::Time t)
          (*it_t).buffer.erase((*it_t).buffer.begin());
 
 
-   }
+   }// Done updating tracks
 
-   if(debug_)
+   // if(debug_)
       std::cout << "[updateTracks3] assigned_z vector: \n" << assigned_z << "\n";
 
    /** @todo  If there are reamining measurements, use add them as new tracks. */
+   // if(debug_)
+      ROS_INFO("[KFTracker::updateTracks3] Adding new tracks using non-assigned measurements");
    for( int m=0; m<z.size(); m++){
       if(assigned_z(m) > 0) continue; // this measurement is assigned, so skip it
       kf_state state;
@@ -341,7 +418,7 @@ void KFTracker::updateTracks3(ros::Time t)
       state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0*Eigen::MatrixXd::Zero(kf_model_.numStates()-3,1);
 
       state.P = kf_model_.Q(dt_pred_);
-      state.P.block(0,0,3,3) = kf_model_.R();
+      // state.P.block(0,0,3,3) = kf_model_.R();
       state.time_stamp = z[m].time_stamp;
       
       kf_track new_track;
@@ -975,7 +1052,7 @@ void KFTracker::initTracks(void)
       state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
       state.P = kf_model_.Q(dt_pred_);
-      state.P.block(0,0,3,3) = kf_model_.R();
+      // state.P.block(0,0,3,3) = kf_model_.R();
 
       kf_track track;
       track.n = 1; // Number of measurements = 1 since it's the 1st one

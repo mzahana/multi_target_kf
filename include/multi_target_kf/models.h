@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef MODELS_H
 #define MODELS_H
 
+#include "multi_target_kf/constant_vel.h"
 #include "multi_target_kf/constant_accel.h"
 #include "multi_target_kf/dubins_model.h"
 

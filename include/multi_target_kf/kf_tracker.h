@@ -105,6 +105,8 @@ private:
    int N_meas_; /**< minimum number of measurements to accept a track and add it to certain_tracks_. */
    double l_threshold_; /**< measurement association log-likelihood threshold. */
 
+   double dist_threshold_; /** Maximum distance between  a state & measurement to consider them as a match */
+
    kf_state kf_state_pred_; /**< KF predicted state and covariance */
    sensor_measurement z_meas_; /**< current sensor measurement. 3x1 vector. */
    sensor_measurement z_last_meas_; /**< previous sensor measurement. 3x1 vector. */
@@ -125,7 +127,7 @@ private:
    std::vector<double> q_diag_; /* diagonal elements of Q matrix */
    std::vector<double> r_diag_; /* diagonal elements of R matrix */
 
-   ConstantAccelModel kf_model_; /* Constant acceleration KF model */
+   ConstantVelModel kf_model_; /* Constant acceleration KF model */
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
@@ -157,6 +159,7 @@ private:
 
    void updateTracks2(ros::Time t);
    void updateTracks3(ros::Time t);
+   void updateTracks4(ros::Time t);
 
    /**
     * @brief Extract tracks with high certainty from the current tracks.
