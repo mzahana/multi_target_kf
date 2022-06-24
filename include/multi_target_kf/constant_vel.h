@@ -274,7 +274,7 @@ Q(std::vector<double> v){
         ROS_INFO("[ConstantVelModel::Q] Setting diagonal Q_ ");
 
     if((unsigned int)v.size()!=NUM_STATES){
-        ROS_ERROR("[ConstantVelModel::Q] Input vector size != NUM_STATES, v.size = %d", v.size());
+        ROS_ERROR("[ConstantVelModel::Q] Input vector size != NUM_STATES, v.size = %lu", v.size());
         return false;
     }
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
@@ -352,7 +352,7 @@ R(std::vector<double> v){
         ROS_INFO("[ConstantVelModel::R] Setting diagonal R_ from a vector");
 
     if((unsigned int)v.size()!=NUM_MEASUREMENTS){
-        ROS_ERROR("[ConstantVelModel::R] Input vector size != NUM_MEASUREMENTS, v.size = %d", v.size());
+        ROS_ERROR("[ConstantVelModel::R] Input vector size != NUM_MEASUREMENTS, v.size = %lu", v.size());
         return false;
     }
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);
@@ -445,7 +445,7 @@ predictX(kf_state s, double dt){
     xx.time_stamp = s.time_stamp + ros::Duration(dt);
 
     auto FF = F(dt);
-    xx.P = FF*s.P*FF.transpose()+Q(dt);
+    xx.P = FF*s.P*FF.transpose()+Q(); //Q(dt);
     xx.x = f(s.x, dt);
 
     if(debug_){
@@ -482,6 +482,17 @@ updateX(sensor_measurement z, kf_state s){
     auto K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
     xx.x = s.x + K*y;
     xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
+
+    if(debug_){
+        ROS_INFO("[ConstantVelModel::updateX] Done updating state");
+        ROS_INFO("[ConstantVelModel::updateX] Norm of innovation y = %f ", y.norm());
+        std::cout << "[ConstantVelModel::updateX] predicted state P: \n" << s.P << "\n";
+        // std::cout << "[ConstantVelModel::updateX] innovation covariance S: \n" << S << "\n";
+        std::cout << "[ConstantVelModel::updateX] Kalman gain: \n" << K << "\n";
+        std::cout << "[ConstantVelModel::updateX] uncorrected state: \n" << s.x << "\n";
+        std::cout << "[ConstantVelModel::updateX] measurement: \n" << z.z << "\n";
+        std::cout << "[ConstantVelModel::updateX] corrected state: \n" << xx.x << "\n";
+    }
 
     return xx;
 }

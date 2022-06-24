@@ -1,24 +1,35 @@
 # Rate of prediction step
-dt_pred: 0.02
-q_diag: [1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
-r_diag: [0.5, 0.5, 0.5]
-print_debug_msg: true
+dt_pred: 0.01
+print_debug_msg: false
+
+# constant accel model
+# q_diag: [1.0,1.0,1.0,10.0,10.0,10.0,10.0,10.0,10.0]
+
+# constant vel model
+q_diag: [5,5,5,10,10,10]
+r_diag: [0.01, 0.01, 0.01]
+
 # Provide estimate w.r.t this frame
 tracking_frame: 'interceptor_odom'
 # Topic name of the tag detections
 apriltags_topic: '/tag_detections'
 # Frame name of the detected target
 target_frameid: 'tag'
+
 # Get target measurements from TF tree
 listen_tf: true
+
 # Maximum uncertainty before rejecting a track [m^3] 
-V_max: 50.0
+V_max: 100.0
 # Minimum uncertainty for confirming a track [m^3]
-V_certain: 10.0
+V_certain: 30.0
 # Minimum number of measurements to confirm a track
 N_meas: 10
 # Measurement association log-likelihood threshold
 l_threshold: -100.0
+
+# Maximum distance between  a state & measurement to consider them as a match (currently not used)
+dist_threshold: 5.0
 
 # False: Doesn't consider measurement track ID in measurement-state association 
 use_track_id: false

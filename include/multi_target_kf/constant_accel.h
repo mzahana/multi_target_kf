@@ -279,7 +279,7 @@ Q(std::vector<double> v){
         ROS_INFO("[ConstantAccelModel::Q] Setting diagonal Q_ ");
 
     if((unsigned int)v.size()!=NUM_STATES){
-        ROS_ERROR("[ConstantAccelModel::Q] Input vector size != NUM_STATES, v.size = %d", v.size());
+        ROS_ERROR("[ConstantAccelModel::Q] Input vector size != NUM_STATES, v.size = %lu", v.size());
         return false;
     }
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
@@ -359,7 +359,7 @@ R(std::vector<double> v){
         ROS_INFO("[ConstantAccelModel::R] Setting diagonal R_ from a vector");
 
     if((unsigned int)v.size()!=NUM_MEASUREMENTS){
-        ROS_ERROR("[ConstantAccelModel::R] Input vector size != NUM_MEASUREMENTS, v.size = %d", v.size());
+        ROS_ERROR("[ConstantAccelModel::R] Input vector size != NUM_MEASUREMENTS, v.size = %lu", v.size());
         return false;
     }
     Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);

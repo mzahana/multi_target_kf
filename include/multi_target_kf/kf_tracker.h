@@ -156,11 +156,7 @@ private:
     * @param t : current time in seconds
     */
    void updateTracks(ros::Time t);
-
-   void updateTracks2(ros::Time t);
-   void updateTracks3(ros::Time t);
-   void updateTracks4(ros::Time t);
-
+   
    /**
     * @brief Extract tracks with high certainty from the current tracks.
     * Uses tracks_ and updates certain_tracks_ 
