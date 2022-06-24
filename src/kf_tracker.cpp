@@ -187,7 +187,7 @@ void KFTracker::updateTracks(ros::Time t)
 
    if(z.empty())
    {
-      // if(debug_)
+      if(debug_)
          ROS_WARN("[updateTracks] No available measurements. Skipping update step.");
       return;
    }
@@ -197,7 +197,7 @@ void KFTracker::updateTracks(ros::Time t)
     auto z_t = z[0].time_stamp.toSec();
    if (z_t <= last_measurement_t_.toSec())
    {
-      // if(debug_)
+      if(debug_)
          ROS_WARN("[updateTracks] No new measurment. Skipping KF update step.");
       return;
    }

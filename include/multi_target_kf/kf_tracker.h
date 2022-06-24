@@ -127,7 +127,8 @@ private:
    std::vector<double> q_diag_; /* diagonal elements of Q matrix */
    std::vector<double> r_diag_; /* diagonal elements of R matrix */
 
-   ConstantVelModel kf_model_; /* Constant acceleration KF model */
+   // ConstantVelModel kf_model_; /* Constant velocity KF model */
+   ConstantAccelModel kf_model_; /* Constant acceleration KF model */
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
@@ -156,7 +157,7 @@ private:
     * @param t : current time in seconds
     */
    void updateTracks(ros::Time t);
-   
+
    /**
     * @brief Extract tracks with high certainty from the current tracks.
     * Uses tracks_ and updates certain_tracks_ 

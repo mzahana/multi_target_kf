@@ -3,10 +3,12 @@ dt_pred: 0.01
 print_debug_msg: false
 
 # constant accel model
-# q_diag: [1.0,1.0,1.0,10.0,10.0,10.0,10.0,10.0,10.0]
+q_diag: [5,5,5, 10,10,10, 10, 10, 10]
 
 # constant vel model
-q_diag: [5,5,5,10,10,10]
+# q_diag: [5,5,5,10,10,10]
+
+# Measurement nnoise diagonal element (same for constant accel/vel models)
 r_diag: [0.01, 0.01, 0.01]
 
 # Provide estimate w.r.t this frame

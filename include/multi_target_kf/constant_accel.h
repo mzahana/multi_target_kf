@@ -60,7 +60,6 @@ Eigen::MatrixXd P_; /* State covariance estimate */
 Eigen::MatrixXd R_; /** Measurements covariance matrix */
 Eigen::VectorXd x_; /* Current state (mean) vector [x, y, z, vx, vy, vz, ax, ay, az] */
 const unsigned int NUM_STATES=9;// constant accel
-// const unsigned int NUM_STATES=6; // constant velocity
 const unsigned int NUM_MEASUREMENTS=3; // position \in R^3
 double dt_; /* Prediction sampling time */
 ros::Time current_t_; /* Current time stamp */
@@ -135,12 +134,6 @@ f(Eigen::VectorXd x, double dt)
     }
 
     Eigen::MatrixXd A = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);
-
-    // constant velocity model
-    // A(0,3) = dt; // x - vx
-    // A(1,4) = dt; // y - vy
-    // A(2,5) = dt; // z - vz
-
     // The following is based on this thesis:
    // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
    A.block(0,3,3,3)= dt*Eigen::MatrixXd::Identity(3,3);
@@ -161,11 +154,6 @@ F(double dt){
         ROS_INFO("[ConstantAccelModel::F] Calculating F");
 
     Eigen::MatrixXd A = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);
-
-    // constant velocity model
-    // A(0,3) = dt; // x - vx
-    // A(1,4) = dt; // y - vy
-    // A(2,5) = dt; // z - vz
 
     // The following is based on this thesis:
     // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
@@ -308,8 +296,7 @@ Q(double dt){
         auto tmp = Q_;
         tmp.block(0,0,3,3) = Qp;
         tmp.block(3,3,3,3) = Qv;
-        if(NUM_STATES==9)
-            tmp.block(6,6,3,3) = Qa;
+        tmp.block(6,6,3,3) = Qa;
 
         return tmp;
     }
