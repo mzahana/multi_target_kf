@@ -2,13 +2,15 @@
 dt_pred: 0.01
 print_debug_msg: false
 
-# constant accel model
+# Diagonal elements of the process covariance matrix Q, for constant acceleration model
+# [x-x, y-y, z-z, vx-vx, vy-vy, vz-vz, ax-ax, ay-ay, az-az]
 q_diag: [5,5,5, 10,10,10, 10, 10, 10]
 
-# constant vel model
+# Diagonal elements of the process covariance matrix Q, for constant velocity model
+# # [x-x, y-y, z-z, vx-vx, vy-vy, vz-vz]
 # q_diag: [5,5,5,10,10,10]
 
-# Measurement nnoise diagonal element (same for constant accel/vel models)
+# Diagonal elements of the process covariance matrix Q, for constant velocity or acceleration models
 r_diag: [0.01, 0.01, 0.01]
 
 # Provide estimate w.r.t this frame
