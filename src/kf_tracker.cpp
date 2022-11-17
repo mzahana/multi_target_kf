@@ -768,7 +768,7 @@ void KFTracker::initTracks(void)
    {
       kf_state state;
       state.time_stamp = z[i].time_stamp;
-      state.x = Eigen::MatrixXd::Zero(6,1);
+      state.x = Eigen::MatrixXd::Zero(NUM_OF_STATES,1);
       state.x.block(0,0,NUM_OF_MEASUREMENTS,1) = z[i].z; // 3D position
       state.x(3) = 0.000001; // vx
       state.x(4) = 0.000001; // vy
