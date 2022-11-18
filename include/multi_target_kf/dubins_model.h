@@ -87,6 +87,8 @@ bool init(void)
     H_.resize(NUM_MEASUREMENTS,NUM_STATES);
     x_ = Eigen::MatrixXd::Zero(NUM_STATES,1);
 
+    return(true);
+
 }
 
 bool
