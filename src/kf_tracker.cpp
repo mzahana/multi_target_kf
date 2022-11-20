@@ -733,16 +733,17 @@ void KFTracker::filterLoop(const ros::TimerEvent& event)
    // Do correction step for all tracks using latest measurements.
    updateTracks(ros::Time::now());
 
-   removeUncertainTracks();
-
    // Publish all available tracks
    publishAllTracks();
 
    // Extrack good tracks, and remove bad ones
    updateCertainTracks();
 
-   // Publish state estimates as PoseArray, and as custom msg of array of pose with covariance
+   // Publish state estimates pf ggod tracks as PoseArray, and as custom msg of array (KFTracks.msg) of pose with covariance
    publishCertainTracks();
+
+   // Remove bad tracks
+   removeUncertainTracks();
 
    return;
 }
