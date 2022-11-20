@@ -195,9 +195,9 @@ private:
    void publishAllTracks(void);
 
    ros::Publisher state_pub_;
-   ros::Publisher poses_pub_; /**< ROS publisher for KF estimated (certain) tracks positions */
+   ros::Publisher good_poses_pub_; /**< ROS publisher for KF estimated (certain) tracks positions */
+   ros::Publisher good_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
    ros::Publisher all_poses_pub_; /**< ROS publisher for KF estimated  (ALL) tracks positions */
-   ros::Publisher certain_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
    ros::Publisher all_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
    ros::Subscriber pose_sub_; /**< Subscriber to measurments. */
    ros::Subscriber pose_array_sub_; /**< Subscriber to measurments. */

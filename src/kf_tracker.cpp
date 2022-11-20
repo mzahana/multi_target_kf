@@ -99,9 +99,9 @@ debug_(false)
    // apriltags_sub_ = nh_.subscribe(apriltags_topic_, 1, &KFTracker::apriltagsCallback, this);
 
    // state_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("kf/estimate", 1);
-   poses_pub_ = nh_.advertise<geometry_msgs::PoseArray>("kf/tracks_pose_array", 1);
+   good_poses_pub_ = nh_.advertise<geometry_msgs::PoseArray>("kf/good_tracks_pose_array", 1);
    all_poses_pub_ = nh_.advertise<geometry_msgs::PoseArray>("kf/all_tracks_pose_array", 1);
-   certain_tracks_pub_ = nh_.advertise<multi_target_kf::KFTracks>("kf/tracks", 1);
+   good_tracks_pub_ = nh_.advertise<multi_target_kf::KFTracks>("kf/good_tracks", 1);
    all_tracks_pub_ = nh_.advertise<multi_target_kf::KFTracks>("kf/all_tracks", 1);
    
 }
@@ -593,8 +593,8 @@ void KFTracker::publishCertainTracks(void)
       tracks_msg.tracks.push_back(track_msg);
    }
 
-   poses_pub_.publish(pose_array);
-   certain_tracks_pub_.publish(tracks_msg);
+   good_poses_pub_.publish(pose_array);
+   good_tracks_pub_.publish(tracks_msg);
    
    return;
 }
