@@ -93,6 +93,7 @@ private:
    ros::NodeHandle nh_private_;
 
    double dt_pred_;
+   ros::Time last_prediction_t_;
 
    std::vector<kf_track> tracks_; /**< Vector of current tracks. */
    std::vector<kf_track> certain_tracks_; /**< Vector of certain tracks only. */
@@ -151,6 +152,8 @@ private:
 
 
    void predictTracks(void);
+
+   void predictTracks(double dt);
 
    /**
     * @brief Performs KF update step for all tracks. 
