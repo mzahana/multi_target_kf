@@ -116,6 +116,8 @@ setSigmaA(double sigma_a)
 {
     if (sigma_a<=0) return false;
     sigma_a_ = sigma_a;
+
+    if (debug_) std::cout << " sigma_a: " << sigma_a_ << "\n";
     return true;
 }
 
@@ -124,6 +126,7 @@ setSigmaP(double sigma_p)
 {
     if (sigma_p<=0) return false;
     sigma_p_ = sigma_p;
+    if (debug_) std::cout << " sigma_p: " << sigma_p_ << "\n";
     return true;
 }
 
@@ -132,6 +135,7 @@ setSigmaV(double sigma_v)
 {
     if (sigma_v<=0) return false;
     sigma_v_ = sigma_v;
+    if (debug_) std::cout << " sigma_v: " << sigma_v_ << "\n";
     return true;
 }
 
@@ -155,7 +159,7 @@ f()
 Eigen::VectorXd
 f(Eigen::VectorXd x)
 {
-    auto new_x = f(x, dt_); // Updates x_
+    Eigen::VectorXd new_x = f(x, dt_); // Updates x_
     return new_x;
 }
 
@@ -311,6 +315,8 @@ Q(double dt, double sigma_a){
 
     Q_ = sigma_a*sigma_a*Q_;
 
+    if(debug_) std::cout << "Q: \n" << Q_ << "\n";
+
 
     return true;
 }
@@ -443,6 +449,8 @@ P(double sigma_p, double sigma_v)
     P_.block(0,0,3,3) = sigma_p*sigma_p*Eigen::MatrixXd::Identity(3,3);
     P_.block(3,3,3,3) = sigma_v*sigma_v*Eigen::MatrixXd::Identity(3,3);
 
+    if (debug_) std::cout << "P: \n" << P_ << "\n";
+
     return true;
 }
 
@@ -501,13 +509,13 @@ predictX(kf_state s, double dt){
         ROS_INFO("[ConstantVelModel::predictX] det(P) of predicted state: %f", xx.P.determinant());
     }
 
-    // if(debug_){
-    //     std::cout << "[predictX] old P = \n" << s.P << "\n";
-    //     std::cout << "[predictX] old x = \n" << s.x << "\n";
+    if(debug_){
+        std::cout << "[predictX] old P = \n" << s.P << "\n";
+        std::cout << "[predictX] old x = \n" << s.x << "\n";
 
-    //     std::cout << "[predictX] new P = \n" << xx.P << "\n";
-    //     std::cout << "[predictX] new x = \n" << xx.x << "\n";
-    // }
+        std::cout << "[predictX] new P = \n" << xx.P << "\n";
+        std::cout << "[predictX] new x = \n" << xx.x << "\n";
+    }
     
     return xx;
 }
@@ -527,7 +535,7 @@ updateX(sensor_measurement z, kf_state s){
 
     Eigen::VectorXd y = z.z - h(s.x); // innovation
     Eigen::MatrixXd S = H()*s.P*H().transpose() + R_; // innovation covariance
-    Eigen::VectorXd K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
+    Eigen::MatrixXd K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
     xx.x = s.x + K*y; 
     xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
 
