@@ -93,7 +93,6 @@ debug_(false)
       ROS_ERROR("Failed to get r_diag parameter");
       return;
    }
-   
 
    ROS_INFO("Initializing Kalman filter...");
    if(!initKF()) 
@@ -813,9 +812,9 @@ void KFTracker::publishCertainTracks(void)
 
       /* The following are model-dependent ! */
       
-      // track_msg.twist.twist.linear.x = (*it).current_state.x[3];
-      // track_msg.twist.twist.linear.y = (*it).current_state.x[4];
-      // track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+      track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+      track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+      track_msg.twist.twist.linear.z = (*it).current_state.x[5];
 
       // track_msg.accel.accel.linear.x = (*it).current_state.x[6];
       // track_msg.accel.accel.linear.y = (*it).current_state.x[7];
@@ -923,7 +922,7 @@ void KFTracker::initTracks(void)
       state.x.resize(kf_model_.numStates(),1);
       state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
       state.x.block(0,0,3,1) = z[i].z; // 3D position
-      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
       state.P = kf_model_.P();//Q(dt_pred_);
       // state.P.block(0,0,3,3) = kf_model_.R();
