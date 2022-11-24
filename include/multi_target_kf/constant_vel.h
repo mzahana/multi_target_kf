@@ -233,7 +233,7 @@ h(Eigen::VectorXd x)
     H_(1,1) = 1.0; // observing y
     H_(2,2) = 1.0; // observing z
 
-    auto z = H_*x;
+    Eigen::VectorXd z = H_*x;
     if(debug_)
         std::cout << "h(x) = \n" << z << "\n";
     return z;
@@ -521,21 +521,15 @@ kf_state
 updateX(sensor_measurement z, kf_state s){
     if(debug_)
         ROS_INFO("[ConstantVelModel::updateX] Updating x");
-    std::cout << "[UpdateX] s.x" << s.x << "\n";
-    ROS_INFO("[updateX] Size of s.x: %lu", s.x.size());
 
     kf_state xx;
     xx.time_stamp = z.time_stamp; //z.time_stamp;
 
-    auto y = z.z - h(s.x); // innovation
-    auto S = H()*s.P*H().transpose() + R_; // innovation covariance
-    auto K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
-    auto tmp = K*y;
-    ROS_WARN("[updateX] tmp size: %lu ", tmp.size());
-    xx.x = Eigen::VectorXd::Zero(s.x.size()); //s.x + K*y;
-    ROS_WARN("[updateX] ------- 2");
+    Eigen::VectorXd y = z.z - h(s.x); // innovation
+    Eigen::MatrixXd S = H()*s.P*H().transpose() + R_; // innovation covariance
+    Eigen::VectorXd K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
+    xx.x = s.x + K*y; 
     xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
-    ROS_WARN("[updateX] ------- 3");
 
     if(debug_){
         ROS_INFO("[ConstantVelModel::updateX] Done updating state");
