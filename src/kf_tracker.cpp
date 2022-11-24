@@ -75,6 +75,12 @@ debug_(false)
    nh_private.param<bool>("listen_tf", listen_tf_, true);
    nh_private.param<bool>("use_track_id", use_track_id_, true);
    nh_private.param<double>("dist_threshold", dist_threshold_, 2.0);
+   nh_private.param<double>("sigma_a", sigma_a_, 1.0);
+   nh_private.param<double>("sigma_p", sigma_p_, 1.0);
+   nh_private.param<double>("sigma_v", sigma_v_, 1.0);
+   if(debug_){
+      ROS_INFO("sigma_a: %f, sigma_p: %f, sigma_v: %f", sigma_a_, sigma_p_, sigma_v_);
+   }
 
 
    if( !nh_private.getParam("q_diag", q_diag_) ){
@@ -89,7 +95,12 @@ debug_(false)
    }
    
 
-   if(!initKF()) return;
+   ROS_INFO("Initializing Kalman filter...");
+   if(!initKF()) 
+   {
+      ROS_ERROR("Could not initialize Kalman filter");
+      return;
+   }
 
    kf_loop_timer_ =  nh_.createTimer(ros::Duration(dt_pred_), &KFTracker::filterLoop, this); // Define timer for constant loop rate
 
@@ -116,19 +127,16 @@ bool KFTracker::initKF(void)
 {
 
    kf_model_.debug(debug_);
-   if(!kf_model_.Q(q_diag_)) return false; // initialize Process covariance matrix
+   if(!kf_model_.Q(dt_pred_, sigma_a_)) return false; // initialize Process covariance matrix
    if(!kf_model_.R(r_diag_)) return false; // initialize measurment covariance matrix
-   if(!kf_model_.P(kf_model_.Q())) return false; // initialize state covariance matrix
+   if(!kf_model_.P(sigma_p_, sigma_v_)) return false; // initialize state covariance matrix
+   if(!kf_model_.setSigmaA(sigma_a_)) return false;
+   if(!kf_model_.setSigmaP(sigma_p_)) return false;
+   if(!kf_model_.setSigmaV(sigma_v_)) return false;
 
    // Clear all buffers
-   state_buffer_.clear();
    tracks_.clear();
    certain_tracks_.clear();
-
-   z_meas_.time_stamp = ros::Time::now();
-   z_meas_.z.resize(3,1); // number of measurements are always 3 (3D position)
-   z_meas_.z = Eigen::MatrixXd::Zero(3,1); //  measured position \in R^3
-   z_last_meas_ = z_meas_;
 
    last_measurement_t_ = ros::Time::now();
    last_prediction_t_ = ros::Time::now();
@@ -917,7 +925,7 @@ void KFTracker::initTracks(void)
       state.x.block(0,0,3,1) = z[i].z; // 3D position
       state.x.block(3,0,kf_model_.numStates()-3,1) = 0.0*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
-      state.P = kf_model_.Q();//Q(dt_pred_);
+      state.P = kf_model_.P();//Q(dt_pred_);
       // state.P.block(0,0,3,3) = kf_model_.R();
 
       kf_track track;

@@ -64,6 +64,10 @@ const unsigned int NUM_MEASUREMENTS=3; // position \in R^3
 double dt_; /* Prediction sampling time */
 ros::Time current_t_; /* Current time stamp */
 
+Eigen::VectorXd acc_variance_; /* 3D vector for accelration variances (sigma^2) in x,y z */
+
+double sigma_a_, sigma_p_, sigma_v_;
+
 public:
 
 void
@@ -78,7 +82,8 @@ H_(Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_STATES)),
 Q_(Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES)),
 P_(Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES)),
 R_(Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_MEASUREMENTS)),
-x_(Eigen::MatrixXd::Zero(NUM_STATES,1))
+x_(Eigen::MatrixXd::Zero(NUM_STATES,1)),
+acc_variance_(Eigen::VectorXd::Zero(3))
 {}
 ~ConstantVelModel(){}
 
@@ -90,6 +95,44 @@ numStates(){
 unsigned int
 numMeasurements(){
     return NUM_MEASUREMENTS;
+}
+
+/**
+ * @brief Sets the acceleration variance vector acc_variance_
+ * @param a Eigen::VectorXd 3D vector contains [ax,ay,az]
+ * @return bool True if size of a is 3. Otheriwse, returns false
+*/
+bool
+setAccVar(Eigen::VectorXd a)
+{
+    if (a.size() != 3) return false;
+
+    acc_variance_.resize(3); acc_variance_= a;
+    return true;
+}
+
+bool
+setSigmaA(double sigma_a)
+{
+    if (sigma_a<=0) return false;
+    sigma_a_ = sigma_a;
+    return true;
+}
+
+bool
+setSigmaP(double sigma_p)
+{
+    if (sigma_p<=0) return false;
+    sigma_p_ = sigma_p;
+    return true;
+}
+
+bool
+setSigmaV(double sigma_v)
+{
+    if (sigma_v<=0) return false;
+    sigma_v_ = sigma_v;
+    return true;
 }
 
 /**
@@ -177,7 +220,7 @@ F(double dt){
  * @return observation z vector
  */
 Eigen::VectorXd
-h(Eigen::VectorXd xx)
+h(Eigen::VectorXd x)
 {
     if(debug_)
         ROS_INFO("[ConstantVelModel::h] Calculating h");
@@ -190,7 +233,7 @@ h(Eigen::VectorXd xx)
     H_(1,1) = 1.0; // observing y
     H_(2,2) = 1.0; // observing z
 
-    auto z = H_*xx;
+    auto z = H_*x;
     if(debug_)
         std::cout << "h(x) = \n" << z << "\n";
     return z;
@@ -217,7 +260,7 @@ H(void){
 /**
  * @brief Sets observation matrix H_
  * @param M MatrixXd Input observation matrix
- * @return Bool True if dimenstions are OK.
+ * @return Bool True if dimensions are OK.
  */
 bool
 H(Eigen::MatrixXd M){
@@ -244,71 +287,55 @@ Q(void)
 }
 
 /**
- * @brief Sets Q_
- * @param M MatrixXd Input Q matrix
- * @return Bool. True if dimenstions are OK. 
- */
+ * @brief Sets the process covariance matrix Q. Used in the prediction step of the Kalman filter
+ * @param dt [double] time step in seconds
+ * @param sigma_a [double] Standard deviation of the process accelration noise
+*/
 bool
-Q(Eigen::MatrixXd M)
-{
-    if(debug_)
-        ROS_INFO("[ConstantVelModel::Q] setting Q_");
+Q(double dt, double sigma_a){
+    if (dt <= 0) return false;
+    if (sigma_a <= 0) return false;
 
-    if (M.cols() == NUM_STATES && M.rows()==NUM_STATES){
-        Q_.resize(NUM_STATES,NUM_STATES);
-        Q_=M;
-        return true;
-    }
-    else
-        return false;
-}
 
-/**
- * @brief Initialize Q_ as a diagonal matrix using a std::vector representing diagonal elements
- * @param v std::vector<double> Vector of diagonla elements.  Its size must be equal to NUM_STATES
- * @return Bool True if size of input vector = NUM_STATES
- */
-bool
-Q(std::vector<double> v){
-    if(debug_)
-        ROS_INFO("[ConstantVelModel::Q] Setting diagonal Q_ ");
+    // Initialize
+    Q_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
 
-    if((unsigned int)v.size()!=NUM_STATES){
-        ROS_ERROR("[ConstantVelModel::Q] Input vector size != NUM_STATES, v.size = %lu", v.size());
-        return false;
-    }
-    Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
-    for (int i=0; i< NUM_STATES; i++) temp(i) = v[i];
+    // Construct the upper left block, Qpp
+    Q_.block(0,0,3,3) = dt*dt*dt*dt/4*Eigen::MatrixXd::Identity(3,3);
+    // Construct the upper right block, Qpv
+    Q_.block(0,3,3,3) = dt*dt*dt/2*Eigen::MatrixXd::Identity(3,3);
+    // Construct the lower left block, Qvp
+    Q_.block(3,0,3,3) = dt*dt*dt/2*Eigen::MatrixXd::Identity(3,3);
+    // Construct the lower right block, Qvv
+    Q_.block(3,3,3,3) = dt*dt*Eigen::MatrixXd::Identity(3,3);
 
-    Q_.resize(NUM_STATES,NUM_STATES);
-    Q_ = temp.asDiagonal();
-    if(debug_)
-        std::cout << "Q_=" << std::endl << Q_ << std::endl;
+    Q_ = sigma_a*sigma_a*Q_;
+
+
     return true;
 }
 
 Eigen::MatrixXd
 Q(double dt){
-    if(Q_.rows() == NUM_STATES && Q_.cols()==NUM_STATES && Q_.determinant()!=0){
-        double q_pos_std_ = Q_(0,0);
-        double q_vel_std_ = Q_(3,3);
-        Eigen::MatrixXd Qp = Eigen::MatrixXd::Identity(3,3);
-        Qp = dt*q_pos_std_*q_pos_std_*Qp;
-        Eigen::MatrixXd Qv = Eigen::MatrixXd::Identity(3,3);
-        Qv = dt*q_vel_std_*q_vel_std_*Qv;
+    if (dt <= 0) return Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);;
 
-        auto tmp = Q_;
-        tmp.block(0,0,3,3) = Qp;
-        tmp.block(3,3,3,3) = Qv;
 
-        return tmp;
-    }
-    else{
-        if(debug_)
-            ROS_WARN("[ConstantVelModel::Q(dt)] Q_ is not well formed");
-        auto tmp = Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES);
-        return tmp;
-    }
+    // Initialize
+    Q_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
+
+    // Construct the upper left block, Qpp
+    Q_.block(0,0,3,3) = dt*dt*dt*dt/4*Eigen::MatrixXd::Identity(3,3);
+    // Construct the upper right block, Qpv
+    Q_.block(0,3,3,3) = dt*dt*dt/2*Eigen::MatrixXd::Identity(3,3);
+    // Construct the lower left block, Qvp
+    Q_.block(3,0,3,3) = dt*dt*dt/2*Eigen::MatrixXd::Identity(3,3);
+    // Construct the lower right block, Qvv
+    Q_.block(3,3,3,3) = dt*dt*Eigen::MatrixXd::Identity(3,3);
+
+    Q_ = sigma_a_*sigma_a_*Q_;
+
+
+    return Q_;
 }
 
 /**
@@ -399,6 +426,27 @@ P(Eigen::MatrixXd M)
 }
 
 /**
+ * @brief Sets P_
+ * @param sigma_p [double] Standard deviation of position
+ * @param sigma_v [double] Standard deviation of velocity
+ * @return Bool. True if sigma_p && and sigma_va are non-zero
+ */
+bool
+P(double sigma_p, double sigma_v)
+{
+    if (sigma_p <=0 || sigma_v<=0) return false;
+    
+    if(debug_){
+        ROS_INFO("[ConstantVelModel::P] Setting P from standard deviations");
+    }
+    P_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
+    P_.block(0,0,3,3) = sigma_p*sigma_p*Eigen::MatrixXd::Identity(3,3);
+    P_.block(3,3,3,3) = sigma_v*sigma_v*Eigen::MatrixXd::Identity(3,3);
+
+    return true;
+}
+
+/**
  * @brief Returns current state vectror 
  * @return VectorXd State vector x_
  */
@@ -445,7 +493,7 @@ predictX(kf_state s, double dt){
     xx.time_stamp = s.time_stamp + ros::Duration(dt);
 
     auto FF = F(dt);
-    xx.P = FF*s.P*FF.transpose()+Q(); //Q(dt);
+    xx.P = FF*s.P*FF.transpose()+Q(dt);
     xx.x = f(s.x, dt);
 
     if(debug_){
@@ -473,6 +521,8 @@ kf_state
 updateX(sensor_measurement z, kf_state s){
     if(debug_)
         ROS_INFO("[ConstantVelModel::updateX] Updating x");
+    std::cout << "[UpdateX] s.x" << s.x << "\n";
+    ROS_INFO("[updateX] Size of s.x: %lu", s.x.size());
 
     kf_state xx;
     xx.time_stamp = z.time_stamp; //z.time_stamp;
@@ -480,8 +530,12 @@ updateX(sensor_measurement z, kf_state s){
     auto y = z.z - h(s.x); // innovation
     auto S = H()*s.P*H().transpose() + R_; // innovation covariance
     auto K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
-    xx.x = s.x + K*y;
+    auto tmp = K*y;
+    ROS_WARN("[updateX] tmp size: %lu ", tmp.size());
+    xx.x = Eigen::VectorXd::Zero(s.x.size()); //s.x + K*y;
+    ROS_WARN("[updateX] ------- 2");
     xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
+    ROS_WARN("[updateX] ------- 3");
 
     if(debug_){
         ROS_INFO("[ConstantVelModel::updateX] Done updating state");

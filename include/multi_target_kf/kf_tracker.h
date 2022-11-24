@@ -109,8 +109,6 @@ private:
    double dist_threshold_; /** Maximum distance between  a state & measurement to consider them as a match */
 
    kf_state kf_state_pred_; /**< KF predicted state and covariance */
-   sensor_measurement z_meas_; /**< current sensor measurement. 3x1 vector. */
-   sensor_measurement z_last_meas_; /**< previous sensor measurement. 3x1 vector. */
    
    bool is_state_initialzed_; /**< flag to start state prediction. Initialized by 1st measurement. */
    std::vector<kf_state> state_buffer_; /**< Bueffer to store last state_buffer_size_ predicted x and P */
@@ -128,8 +126,12 @@ private:
    std::vector<double> q_diag_; /* diagonal elements of Q matrix */
    std::vector<double> r_diag_; /* diagonal elements of R matrix */
 
-   // ConstantVelModel kf_model_; /* Constant velocity KF model */
-   ConstantAccelModel kf_model_; /* Constant acceleration KF model */
+   double sigma_a_; /* Standard deviation of acceleration noise */
+   double sigma_p_; /* Standard deviataion of the position. Used in the initial  state covariance matrix P*/
+   double sigma_v_; /* Standard deviataion of the velocity. Used in the initial  state covariance matrix P*/
+
+   ConstantVelModel kf_model_; /* Constant velocity KF model */
+   // ConstantAccelModel kf_model_; /* Constant acceleration KF model */
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
