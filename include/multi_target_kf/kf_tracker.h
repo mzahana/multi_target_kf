@@ -131,7 +131,6 @@ private:
    double sigma_v_; /* Standard deviataion of the velocity. Used in the initial  state covariance matrix P*/
 
    ConstantVelModel kf_model_; /* Constant velocity KF model */
-   // ConstantAccelModel kf_model_; /* Constant acceleration KF model */
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
