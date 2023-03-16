@@ -1,6 +1,13 @@
 #ifndef TRACKER_ROS_H
 #define TRACKER_ROS_H
 
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
+
+#include "rclcpp/rclcpp.hpp"
+
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
@@ -13,16 +20,28 @@
 
 #include "multi_target_kf/kf_tracker.h"
 
+using namespace std::chrono_literals;
 
-class TrackerROS
+
+class TrackerROS : public rclcpp::Node
 {
+public:
+    TrackerROS(/* args */);
+    ~TrackerROS();
 private:
     std::string target_frameid_; /**< Target frame name which will be post-fixed by the target unique number e.g. "tag", post-fixed will be like "tag1" */
     tf::TransformListener tf_listener_; /**< TF listener for measurements */
     bool listen_tf_; /**< listens to TF to find transofrms of received measurements w.r.t. tracking_frame_ */
-    ros::Timer kf_loop_timer_;
     KFTracker kf_tracker_;
-    std::string apriltags_topic_;
+
+    rclcpp::TimerBase::SharedPtr kf_loop_timer_;
+
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr good_poses_pub_; /**< ROS publisher for KF estimated (certain) tracks positions */
+    rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr good_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr all_poses_pub_;/**< ROS publisher for KF estimated  (ALL) tracks positions */
+    rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr all_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
+   
+   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_sub_;/**< Subscriber to measurments. */
 
     /**
     * @brief Measurement ROS Callback. Updates measurement_set_
@@ -42,26 +61,14 @@ private:
    void publishCertainTracks(void);
    void publishAllTracks(void);
 
-   ros::Publisher state_pub_;
-   ros::Publisher good_poses_pub_; /**< ROS publisher for KF estimated (certain) tracks positions */
-   ros::Publisher good_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
-   ros::Publisher all_poses_pub_; /**< ROS publisher for KF estimated  (ALL) tracks positions */
-   ros::Publisher all_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
-   ros::Subscriber pose_sub_; /**< Subscriber to measurments. */
-   ros::Subscriber pose_array_sub_; /**< Subscriber to measurments. */
-   ros::Subscriber apriltags_sub_; /**< Subscriber to apriltags detections (requires apriltag_ros pkg). */
-
    /**
     * @brief Executes the KF predict and update steps.
     */
    void filterLoop(double t);
 
-public:
-    TrackerROS(/* args */);
-    ~TrackerROS();
 };
 
-TrackerROS::TrackerROS(/* args */)
+TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 {
     nh_private_.param<double>("dt_pred", kf_tracker_.dt_pred_, 0.05);
    nh_private_.param<double>("V_max", kf_tracker_.V_max_, 20.0);
@@ -71,12 +78,12 @@ TrackerROS::TrackerROS(/* args */)
    int buff_size;
    nh_private_.param<int>("state_buffer_length", kf_tracker_.buff_size, 40);
    kf_tracker_.state_buffer_size_  = (unsigned int) buff_size;
-   ROS_INFO("State buffer length corresponds to %f seconds", kf_tracker_dt_pred_*(double)kf_tracker_.state_buffer_size_);
+   RCLCPP_INFO(this->get_logger(),"State buffer length corresponds to %f seconds",
+                kf_tracker_.dt_pred_*(double)kf_tracker_.state_buffer_size_);
    nh_private.param<bool>("do_kf_update_step", kf_tracker_.do_update_step_, true);
    nh_private.param<double>("measurement_off_time", kf_tracker_.measurement_off_time_, 2.0);
    nh_private.param<bool>("print_debug_msg", kf_tracker_.debug_, false);
    nh_private.param<std::string>("tracking_frame", kf_tracker_.tracking_frame_, "map");
-   nh_private.param<std::string>("apriltags_topic", apriltags_topic_, "tag_detections");
    nh_private.param<std::string>("target_frameid", target_frameid_, "tag");
    nh_private.param<bool>("listen_tf", listen_tf_, true);
    nh_private.param<bool>("use_track_id", kf_tracker_.use_track_id_, true);
@@ -85,43 +92,43 @@ TrackerROS::TrackerROS(/* args */)
    nh_private.param<double>("sigma_p", kf_tracker_.sigma_p_, 1.0);
    nh_private.param<double>("sigma_v", kf_tracker_.sigma_v_, 1.0);
    if(debug_){
-      ROS_INFO("sigma_a: %f, sigma_p: %f, sigma_v: %f", sigma_a_, sigma_p_, sigma_v_);
+      RCLCPP_INFO(this->get_logger(),"sigma_a: %f, sigma_p: %f, sigma_v: %f", sigma_a_, sigma_p_, sigma_v_);
    }
 
 
    if( !nh_private.getParam("q_diag",kf_tracker_. q_diag_) ){
-      ROS_ERROR("Failed to get q_diag parameter");
+      RCLCPP_ERROR(this->get_logger(),"Failed to get q_diag parameter");
       return;
    }
 
 
    if( !nh_private.getParam("r_diag", kf_tracker_.r_diag_) ){
-      ROS_ERROR("Failed to get r_diag parameter");
+      RCLCPP_ERROR(this->get_logger(),"Failed to get r_diag parameter");
       return;
    }
 
    kf_tracker_.last_measurement_t_ = ros::Time::now(); // should be double
    kf_tracker_.last_prediction_t_ = ros::Time::now(); // should be double
 
-   ROS_INFO("Initializing Kalman filter...");
+   RCLCPP_INFO(this->get_logger(),"Initializing Kalman filter...");
    if(!kf_tracker_.initKF()) 
    {
-      ROS_ERROR("Could not initialize Kalman filter");
+      RCLCPP_ERROR(this->get_logger(),"Could not initialize Kalman filter");
       return;
    }
 
-   kf_loop_timer_ =  nh_.createTimer(ros::Duration(dt_pred_), &KFTracker::filterLoop, this); // Define timer for constant loop rate
 
-   //pose_sub_ =  nh_.subscribe("measurement/pose", 1, &KFTracker::poseCallback, this);
-   pose_array_sub_ =  nh_.subscribe("measurement/pose_array", 1, &KFTracker::poseArrayCallback, this);
+   std::chrono::milliseconds duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(kf_tracker_.dt_pred_));
+   kf_loop_timer_ = this->create_wall_timer(
+      duration_ms, std::bind(&KFTracker::filterLoop, this)); // Define timer for constant loop rate
 
-   // apriltags_sub_ = nh_.subscribe(apriltags_topic_, 1, &KFTracker::apriltagsCallback, this);
+   pose_array_sub_ = this->create_subscription<geometry_msgs::msg::msg::PoseArray>(
+      "measurement/pose_array", 10, std::bind(&KFTracker::poseArrayCallback, this, _1));
 
-   // state_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("kf/estimate", 1);
-   good_poses_pub_ = nh_.advertise<geometry_msgs::PoseArray>("kf/good_tracks_pose_array", 1);
-   all_poses_pub_ = nh_.advertise<geometry_msgs::PoseArray>("kf/all_tracks_pose_array", 1);
-   good_tracks_pub_ = nh_.advertise<multi_target_kf::KFTracks>("kf/good_tracks", 1);
-   all_tracks_pub_ = nh_.advertise<multi_target_kf::KFTracks>("kf/all_tracks", 1);
+   good_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/good_tracks_pose_array", 10);
+   all_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/all_tracks_pose_array", 10);
+   good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/good_tracks", 10);
+   all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/all_tracks", 10);
 }
 
 TrackerROS::~TrackerROS()
@@ -129,20 +136,21 @@ TrackerROS::~TrackerROS()
 }
 
 void
-TrackerROS::poseArrayCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
+const irobot_create_msgs::msg::InterfaceButtons::SharedPtr
+TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg)
 {
    // if(debug_)
    //    printf("[KFTracker::poseArrayCallback] Thred id: %s", std::this_thread::get_id());
 
    // measurement_set_mtx_.lock();
 
-   measurement_set_.clear();
+   kf_tracker_.measurement_set_.clear();
    
    // Sanity check
    if(msg->poses.empty())
    {
       if(debug_)
-         ROS_WARN("[KFTracker::poseArrayCallback]: No measurements received.");
+         RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: No measurements received.");
 
       // measurement_set_mtx_.unlock();
       return;
@@ -161,14 +169,14 @@ TrackerROS::poseArrayCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
       if(nrm> 10000.0  || isnan(nrm))
       {
          if(debug_)
-            ROS_WARN("[poseArrayCallback] Measurement norm is very large %f", z.z.norm());
+            RCLCPP_WARN(this->get_logger(),"[poseArrayCallback] Measurement norm is very large %f", z.z.norm());
          continue;
       }
       measurement_set_.push_back(z);
    }
    if(debug_){
-      printf("[poseArrayCallback] Size of measurement_set_ : %lu", measurement_set_.size());
-      printf("[poseArrayCallback] Size of msg->poses : %lu", msg->poses.size());
+      RCLCPP_INFO(this->get_logger(),"[poseArrayCallback] Size of measurement_set_ : %lu", measurement_set_.size());
+      RCLCPP_INFO(this->get_logger(),"[poseArrayCallback] Size of msg->poses : %lu", msg->poses.size());
    }
 
    // measurement_set_mtx_.unlock();
@@ -180,13 +188,13 @@ TrackerROS::poseArrayCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
 void
 TrackerROS::publishCertainTracks(void)
 {
-   if(certain_tracks_.empty()){
+   if(kf_tracker.certain_tracks_.empty()){
       if(debug_)
-         ROS_WARN("[KFTracker::publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
+         RCLCPP_WARN(this->get_logger(),"[KFTracker::publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
       return;
    }
 
-   geometry_msgs::Pose pose;
+   geometry_msgs::msg::Pose pose;
    geometry_msgs::PoseArray pose_array;
    multi_target_kf::KFTrack track_msg;
    multi_target_kf::KFTracks tracks_msg;
@@ -236,11 +244,11 @@ TrackerROS::publishAllTracks(void)
 {
    if(tracks_.empty()){
       if(debug_)
-         ROS_WARN("[KFTracker::publishAllTracks] tracks_ is empty. No tracks to publish");
+         RCLCPP_WARN(this->get_logger(),"[KFTracker::publishAllTracks] tracks_ is empty. No tracks to publish");
       return;
    }
 
-   // ROS_WARN("[KFTracker::publishAllTracks] Number of all tracks: %d", tracks_.size());
+   // RCLCPP_WARN(this->get_logger(),"[KFTracker::publishAllTracks] Number of all tracks: %d", tracks_.size());
 
    geometry_msgs::Pose pose;
    geometry_msgs::PoseArray pose_array;
