@@ -11,8 +11,8 @@
 
 // SOURCE: https://github.com/mcximing/hungarian-algorithm-cpp/blob/master/Hungarian.h
 
-#ifndef HUNGARIAN2_H
-#define HUNGARIAN2_H
+#ifndef HUNGARIAN_H
+#define HUNGARIAN_H
 
 #include <iostream>
 #include <vector>
