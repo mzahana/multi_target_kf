@@ -30,11 +30,37 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef MODELS_H
-#define MODELS_H
+#ifndef STRUCTS_H
+#define STRUCTS_H
 
-#include "multi_target_kf/constant_vel.h"
-// #include "multi_target_kf/dubins_model.h"
+#include <iostream>
+#include <stdio.h>
+#include <cstdlib>
+#include <string>
+#include <sstream>
+#include <math.h>  // log
+#include <Eigen/Dense>
+
+/**
+ * Structure to store the current stamped KF prediction
+ */
+struct kf_state
+{
+   double time_stamp;
+   Eigen::VectorXd x; // State estimate
+   Eigen::MatrixXd P; // State estimate covariance
+};
+
+/**
+ * Structure to store current stamped sensor measurement.
+ */
+struct sensor_measurement
+{
+   double time_stamp; /**< time in seconds */
+   unsigned int id; /**< OPtional. Associated measurement ID, e.g. Apriltag ID */
+   Eigen::VectorXd z; /**< Measurements, e.g. 3D position, velocity, ... etc */
+   Eigen::MatrixXd R; /* Measurement covariance matrix */
+};
 
 
-#endif //MODELS_H
+#endif //STRUCTS_H

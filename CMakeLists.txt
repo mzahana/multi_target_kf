@@ -16,19 +16,45 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(eigen3_cmake_module REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 
 # let the compiler search for headers in the include folder
-include_directories(include)
+# include_directories(include)
+
+#
+# hungarian.cpp
+#
+add_library(hungarian src/hungarian.cpp)
+# this line to exports the library
+ament_export_targets(hungarian HAS_LIBRARY_TARGET)
+target_include_directories(hungarian
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
+#
+# kf_tracker.cpp
+#
 
 # define a library target called my_value_converter_library
-add_library(multi_target_kf src/kf_tracker.cpp)
+add_library(kf_tracker src/kf_tracker.cpp)
+ament_target_dependencies(kf_tracker Eigen3)
 
 # this line to exports the library
-ament_export_targets(multi_target_kf HAS_LIBRARY_TARGET)
+ament_export_targets(kf_tracker HAS_LIBRARY_TARGET)
 
-find_package(Eigen3 REQUIRED)
-target_link_libraries(multi_target_kf Eigen3::Eigen)
+target_include_directories(kf_tracker
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
+# target_link_libraries(multi_target_kf Eigen3::Eigen)
+
+#
+# Install
+#
 
 # install the include/my_cpp_library directory to the install/include/my_cpp_library
 install(
@@ -37,8 +63,17 @@ install(
 )
 
 install(
-  TARGETS multi_target_kf
-  EXPORT multi_target_kf
+  TARGETS kf_tracker
+  EXPORT kf_tracker
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+)
+
+install(
+  TARGETS hungarian
+  EXPORT hungarian
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin

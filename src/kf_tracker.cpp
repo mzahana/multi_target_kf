@@ -46,14 +46,13 @@ V_max_(20.0),
 V_certain_(1.0),
 N_meas_(20),
 l_threshold_(-2.0),
+dist_threshold_(2.0),
 is_state_initialzed_(false),
 state_buffer_size_(40),
 tracking_frame_("map"),
-listen_tf_(true),
 do_update_step_(true),
 measurement_off_time_(2.0),
 use_track_id_(false),
-dist_threshold_(2.0),
 sigma_a_(10),
 sigma_p_(1),
 sigma_v_(1),
@@ -91,6 +90,62 @@ bool KFTracker::initKF(void)
    return true;
 }
 
+void KFTracker::initTracks(void)
+{
+   // if(debug_)
+   //    printf("[KFTracker::initTracks] Thred id: %s", std::this_thread::get_id());
+
+   // measurement_set_mtx_.lock();
+   auto z = measurement_set_;
+
+   // measurement_set_mtx_.unlock();
+
+   if(z.empty())
+   {
+      if(debug_){
+         printf("WARN [initTracks] No available measurements. Track initialization is skipped.");
+      }
+      return;
+   }
+
+   if(z[0].time_stamp <= last_measurement_t_)
+   {
+      if(debug_)
+         printf("WARN [initTracks] No new measurements. Track initilization is skipped.");
+      return;
+   }
+
+   if(debug_)
+      printf("[KFTracker::initTracks] Initializing tracks...");
+
+   last_measurement_t_ = z[0].time_stamp;
+
+   for (long unsigned int i=0; i < z.size(); i++)
+   {
+      kf_state state;
+      state.time_stamp = z[i].time_stamp;
+      state.x.resize(kf_model_.numStates(),1);
+      state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
+      state.x.block(0,0,3,1) = z[i].z; // 3D position
+      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      
+      state.P = kf_model_.P();//Q(dt_pred_);
+      // state.P.block(0,0,3,3) = kf_model_.R();
+
+      kf_track track;
+      track.n = 1; // Number of measurements = 1 since it's the 1st one
+      track.current_state = state;
+      track.buffer.push_back(state);
+
+      tracks_.push_back(track);
+   }
+   if(debug_){
+      printf("[KFTracker::initTracks] Initialized %lu tracks", tracks_.size());
+   }
+
+   return;
+
+}
 
 void KFTracker::predictTracks(void)
 {
@@ -250,8 +305,8 @@ void KFTracker::updateTracks(double t)
   if(debug_){
      printf("[KFTracker::updateTracks] Cost matrix is prepared");
      std::cout << "costMat: \n";
-      for(int ii=0; ii<costMat.size(); ii++){
-         for(int jj=0; jj<costMat[ii].size(); jj++)
+      for(long unsigned int ii=0; ii<costMat.size(); ii++){
+         for(long unsigned int jj=0; jj<costMat[ii].size(); jj++)
             std::cout << costMat[ii][jj] << " "  ;
       }
       std::cout << "\n";
@@ -264,9 +319,9 @@ void KFTracker::updateTracks(double t)
    std::vector<int> assignment; // Assignment vector, has size of tracks_
    double cost = HungAlgo_.Solve(costMat, assignment);
    if(debug_){
-      printf("[KFTracker::updateTracks] Hungarian algorithm is executed");
+      printf("[KFTracker::updateTracks] Hungarian algorithm is executed. cost = %f", cost);
       std::cout << "Assignment vector: \n";
-      for(int i=0; i<assignment.size(); i++){
+      for(long unsigned int i=0; i<assignment.size(); i++){
          std::cout << assignment[i] << " ";
       }
       std::cout << "\n";
@@ -318,7 +373,7 @@ void KFTracker::updateTracks(double t)
    /** @todo  If there are reamining measurements, use add them as new tracks. */
    if(debug_)
       printf("[KFTracker::updateTracks] Adding new tracks using non-assigned measurements");
-   for( int m=0; m<z.size(); m++){
+   for( long unsigned int m=0; m<z.size(); m++){
       if(assigned_z(m) > 0) continue; // this measurement is assigned, so skip it
       kf_state state;
       state.x.resize(kf_model_.numStates(),1);
@@ -338,7 +393,7 @@ void KFTracker::updateTracks(double t)
 
       tracks_.push_back(new_track);
       if(debug_){
-         printf( "WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %d ******* ", m);
+         printf( "WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %lu ******* ", m);
       }      
    }
 
@@ -390,7 +445,7 @@ KFTracker::updateCertainTracks(void)
       if(debug_)
          printf( "WARN [KFTracker::updateCertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);
       // If certainty is acceptable, add it to certain_tracks_
-      if (V <= V_certain_ && (*it).n >= N_meas_)
+      if (V <= V_certain_ && (*it).n >= (unsigned int)N_meas_)
       {
          certain_tracks_.push_back((*it));
       }
