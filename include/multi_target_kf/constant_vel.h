@@ -45,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 class ConstantVelModel: public BaseModel
 {
-private:
+public:
 
     unsigned int NUM_STATES=6;// constant velocity model
     unsigned int NUM_MEASUREMENTS=3; // position \in R^3
@@ -53,8 +53,6 @@ private:
     Eigen::VectorXd acc_variance_; /* 3D vector for accelration variances (sigma^2) in x,y z */
 
     double sigma_a_, sigma_p_, sigma_v_;
-
-public:
 
     /* Constructor */
     ConstantVelModel():

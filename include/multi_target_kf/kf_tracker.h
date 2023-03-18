@@ -78,6 +78,11 @@ const unsigned char kMODEL = MODEL::DUBINS;
  */
 class KFTracker
 {
+private:
+   ConstantVelModel kf_model_; /* Constant velocity KF model */
+   // DubinsModel kf_model_; /* 3D Dubins EKF model */
+
+   HungarianAlgorithm HungAlgo_; /** Hungarian algorithm object for state-measurement assignment */
 public:
 
    double dt_pred_;
@@ -113,12 +118,7 @@ public:
    double sigma_p_; /* Standard deviataion of the position. Used in the initial  state covariance matrix P*/
    double sigma_v_; /* Standard deviataion of the velocity. Used in the initial  state covariance matrix P*/
 
-   ConstantVelModel kf_model_; /* Constant velocity KF model */
-   // DubinsModel kf_model_; /* 3D Dubins EKF model */
-
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
-
-   HungarianAlgorithm HungAlgo_; /** Hungarian algorithm object for state-measurement assignment */
 
    
 
@@ -155,6 +155,12 @@ public:
     * @brief Removes tracks  (from tracks_ ) with position uncertainty > V_max__ 
     */
    void removeUncertainTracks(void);
+
+   /**
+    * @brief Executes one loop of the KF filter
+    * @param t [double] current time
+   */
+   void filterLoop(double t);
 
 
 

@@ -403,4 +403,43 @@ KFTracker::updateCertainTracks(void)
    }
 }
 
+/**
+ * @param t current time
+*/
+void
+KFTracker::filterLoop(double t)
+{
+   if(debug_)
+      printf("[KFTracker::filterLoop] inside filterLoop...");
+
+   if(tracks_.empty())
+   {
+      /* Initialize tracks with current measurements. Then, return */
+      if(debug_){
+         printf("WARN [KFTracker::filterLoop] No tracks to update. Initializing tracks using current measurements.");
+      }
+      initTracks();
+
+      return;
+   }
+
+   // Do prediction step for all tracks.
+   // predictTracks();
+
+   double dt = t - last_prediction_t_;
+   predictTracks(dt);
+   last_prediction_t_ = t;
+
+   // Do correction step for all tracks using latest measurements.
+   updateTracks(t);
+
+   // Extrack good tracks
+   updateCertainTracks();
+
+   // Remove bad tracks
+   removeUncertainTracks();
+
+   return;
+}
+
 

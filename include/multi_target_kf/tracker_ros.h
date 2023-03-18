@@ -68,9 +68,12 @@ private:
 
 };
 
+/**
+ * @brief Class definition
+ */
 TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 {
-    nh_private_.param<double>("dt_pred", kf_tracker_.dt_pred_, 0.05);
+   nh_private_.param<double>("dt_pred", kf_tracker_.dt_pred_, 0.05);
    nh_private_.param<double>("V_max", kf_tracker_.V_max_, 20.0);
    nh_private_.param<double>("V_certain", kf_tracker_.V_certain_, 1.0);
    nh_private_.param<int>("N_meas", kf_tracker_.N_meas_, 20);
@@ -107,8 +110,8 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
       return;
    }
 
-   kf_tracker_.last_measurement_t_ = ros::Time::now(); // should be double
-   kf_tracker_.last_prediction_t_ = ros::Time::now(); // should be double
+   kf_tracker_.last_measurement_t_ = ros::Time::now(); // @todo should be double
+   kf_tracker_.last_prediction_t_ = ros::Time::now(); // @todo should be double
 
    RCLCPP_INFO(this->get_logger(),"Initializing Kalman filter...");
    if(!kf_tracker_.initKF()) 
@@ -118,13 +121,16 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
    }
 
 
+   // Define timers
    std::chrono::milliseconds duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(kf_tracker_.dt_pred_));
    kf_loop_timer_ = this->create_wall_timer(
-      duration_ms, std::bind(&KFTracker::filterLoop, this)); // Define timer for constant loop rate
+      duration_ms, std::bind(&TrackerROS::filterLoop, this)); // Define timer for constant loop rate
 
-   pose_array_sub_ = this->create_subscription<geometry_msgs::msg::msg::PoseArray>(
-      "measurement/pose_array", 10, std::bind(&KFTracker::poseArrayCallback, this, _1));
-
+   // Define subscribers
+   pose_array_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+      "measurement/pose_array", 10, std::bind(&TrackerROS::poseArrayCallback, this, _1));
+   
+   // Define publishers
    good_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/good_tracks_pose_array", 10);
    all_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/all_tracks_pose_array", 10);
    good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/good_tracks", 10);
@@ -136,7 +142,6 @@ TrackerROS::~TrackerROS()
 }
 
 void
-const irobot_create_msgs::msg::InterfaceButtons::SharedPtr
 TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg)
 {
    // if(debug_)
@@ -188,20 +193,20 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg
 void
 TrackerROS::publishCertainTracks(void)
 {
-   if(kf_tracker.certain_tracks_.empty()){
+   if(kf_tracker_.certain_tracks_.empty()){
       if(debug_)
          RCLCPP_WARN(this->get_logger(),"[KFTracker::publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
       return;
    }
 
    geometry_msgs::msg::Pose pose;
-   geometry_msgs::PoseArray pose_array;
-   multi_target_kf::KFTrack track_msg;
-   multi_target_kf::KFTracks tracks_msg;
-   pose_array.header.stamp = certain_tracks_[0].current_state.time_stamp;
-   pose_array.header.frame_id = tracking_frame_;
+   geometry_msgs::msg::PoseArray pose_array;
+   multi_target_kf::msg::KFTrack track_msg;
+   multi_target_kf::msg::KFTracks tracks_msg;
+   pose_array.header.stamp = kf_tracker_.certain_tracks_[0].current_state.time_stamp;
+   pose_array.header.frame_id = kf_tracker_.tracking_frame_;
 
-   for (auto it = certain_tracks_.begin(); it != certain_tracks_.end(); it++)
+   for (auto it = kf_tracker_.certain_tracks_.begin(); it != kf_tracker_.certain_tracks_.end(); it++)
    {
       pose.position.x = (*it).current_state.x[0];
       pose.position.y = (*it).current_state.x[1];
@@ -211,7 +216,7 @@ TrackerROS::publishCertainTracks(void)
       pose_array.poses.push_back(pose);
 
       track_msg.header.stamp = (*it).current_state.time_stamp;
-      track_msg.header.frame_id = tracking_frame_;
+      track_msg.header.frame_id = kf_tracker_.tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
 
@@ -250,12 +255,12 @@ TrackerROS::publishAllTracks(void)
 
    // RCLCPP_WARN(this->get_logger(),"[KFTracker::publishAllTracks] Number of all tracks: %d", tracks_.size());
 
-   geometry_msgs::Pose pose;
-   geometry_msgs::PoseArray pose_array;
-   multi_target_kf::KFTrack track_msg;
-   multi_target_kf::KFTracks tracks_msg;
-   pose_array.header.stamp = tracks_[0].current_state.time_stamp;
-   pose_array.header.frame_id = tracking_frame_;
+   geometry_msgs::msg::Pose pose;
+   geometry_msgs::msg::PoseArray pose_array;
+   multi_target_kf::msg::KFTrack track_msg;
+   multi_target_kf::msg::KFTracks tracks_msg;
+   pose_array.header.stamp = kf_tracker_.tracks_[0].current_state.time_stamp;
+   pose_array.header.frame_id = kf_tracker_.tracking_frame_;
 
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
@@ -267,7 +272,7 @@ TrackerROS::publishAllTracks(void)
       pose_array.poses.push_back(pose);
 
       track_msg.header.stamp = (*it).current_state.time_stamp;
-      track_msg.header.frame_id = tracking_frame_;
+      track_msg.header.frame_id = kf_tracker_.tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
 
@@ -296,46 +301,22 @@ TrackerROS::publishAllTracks(void)
 }
 
 /**
- * @param t current time
+ * @brief 
 */
 void
-KFTracker::filterLoop(double t)
+TrackerROS::filterLoop(void)
 {
    if(debug_)
-      printf("[KFTracker::filterLoop] inside filterLoop...");
+      printf("[TrackerROS::filterLoop] inside filterLoop...");
 
-   if(tracks_.empty())
-   {
-      /* Initialize tracks with current measurements. Then, return */
-      if(debug_){
-         printf("WARN [KFTracker::filterLoop] No tracks to update. Initializing tracks using current measurements.");
-      }
-      initTracks();
-
-      return;
-   }
-
-   // Do prediction step for all tracks.
-   // predictTracks();
-
-   double dt = t - kf_tracker_.last_prediction_t_;
-   predictTracks(dt);
-   kf_tracker_.last_prediction_t_ = t;
-
-   // Do correction step for all tracks using latest measurements.
-   kf_tracker_.updateTracks(t);
+   double t=0; // @todo get current ros time
+   kf_tracker_.filterLoop(t);
 
    // Publish all available tracks
    publishAllTracks();
 
-   // Extrack good tracks, and remove bad ones
-   kf_tracker_.updateCertainTracks();
-
    // Publish state estimates pf ggod tracks as PoseArray, and as custom msg of array (KFTracks.msg) of pose with covariance
    publishCertainTracks();
-
-   // Remove bad tracks
-   kf_tracker_.removeUncertainTracks();
 
    return;
 }

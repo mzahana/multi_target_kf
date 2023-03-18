@@ -70,7 +70,7 @@ struct sensor_measurement
  */
 class BaseModel
 {
-private:
+public:
 
    Eigen::MatrixXd F_; /* State transition jacobian matrix */
    Eigen::MatrixXd H_; /* Observation jacobian matrix */
@@ -83,7 +83,6 @@ private:
    double dt_; /* Prediction sampling time */
    double current_t_; /* Current time stamp */
 
-public:
    BaseModel(){ init();}
    ~BaseModel(){}
 
