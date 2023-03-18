@@ -18,8 +18,15 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
 
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/KFTrack.msg"
+  "msg/KFTracks.msg"
+  DEPENDENCIES std_msgs builtin_interfaces geometry_msgs # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
+)
 # let the compiler search for headers in the include folder
 # include_directories(include)
 

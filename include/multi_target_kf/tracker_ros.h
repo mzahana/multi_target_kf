@@ -8,10 +8,10 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/PoseArray.h>
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-// #include <apriltag_ros/AprilTagDetectionArray.h>
+
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include "multi_target_kf/KFTrack.h" // @todo Need to define these custom messages
 #include "multi_target_kf/KFTracks.h"
 
