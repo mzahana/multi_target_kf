@@ -66,6 +66,7 @@ private:
  */
 TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 {
+   // kf_tracker_ = new KFTracker();
    
     this->declare_parameter("dt_pred", 0.05);
     kf_tracker_->dt_pred_ = this->get_parameter("dt_pred").get_parameter_value().get<double>();
@@ -121,17 +122,13 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
       RCLCPP_INFO(this->get_logger(),"sigma_a: %f, sigma_p: %f, sigma_v: %f", kf_tracker_->sigma_a_, kf_tracker_->sigma_p_, kf_tracker_->sigma_v_);
    }
 
+   std::vector<double> q_diag {0.1, 0.1, 0.1, 0.1, 0.1, 0.1 ,0.1 , 0.1, 0.1};
+    this->declare_parameter("q_diag", q_diag);
+    kf_tracker_->q_diag_ = this->get_parameter("q_diag").get_parameter_value().get<std::vector<double>>();
 
-   if( !nh_private.getParam("q_diag",kf_tracker_. q_diag_) ){
-      RCLCPP_ERROR(this->get_logger(),"Failed to get q_diag parameter");
-      return;
-   }
-
-
-   if( !nh_private.getParam("r_diag", kf_tracker_.r_diag_) ){
-      RCLCPP_ERROR(this->get_logger(),"Failed to get r_diag parameter");
-      return;
-   }
+    std::vector<double> r_diag {0.01, 0.01, 0.01};
+    this->declare_parameter("r_diag", r_diag);
+    kf_tracker_->r_diag_ = this->get_parameter("r_diag").get_parameter_value().get<std::vector<double>>();
 
    kf_tracker_->last_measurement_t_ = this->now().seconds();
    kf_tracker_->last_prediction_t_ = this->now().seconds();
@@ -145,7 +142,7 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 
 
    // Define timers
-   std::chrono::milliseconds duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(kf_tracker_.dt_pred_));
+   std::chrono::milliseconds duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(kf_tracker_->dt_pred_));
    kf_loop_timer_ = this->create_wall_timer(
       duration_ms, std::bind(&TrackerROS::filterLoop, this)); // Define timer for constant loop rate
 
@@ -187,7 +184,7 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
    for (auto it = msg.poses.begin(); it != msg.poses.end(); it++)
    {
       sensor_measurement z;
-      z.time_stamp = msg.header.stamp;
+      z.time_stamp = static_cast<double>(msg.header.stamp.nanosec/1e9) ;
       z.id = 0;
       z.z = Eigen::MatrixXd::Zero(3,1); // 3, because it's always position only, for now!
       z.z(0) = (*it).position.x;
@@ -226,7 +223,7 @@ TrackerROS::publishCertainTracks(void)
    geometry_msgs::msg::PoseArray pose_array;
    multi_target_kf::msg::KFTrack track_msg;
    multi_target_kf::msg::KFTracks tracks_msg;
-   pose_array.header.stamp = kf_tracker_->certain_tracks_[0].current_state.time_stamp; // @todo need to convert to ros time
+   pose_array.header.stamp = rclcpp::Time(kf_tracker_->certain_tracks_[0].current_state.time_stamp);
    pose_array.header.frame_id = kf_tracker_->tracking_frame_;
 
    for (auto it = kf_tracker_->certain_tracks_.begin(); it != kf_tracker_->certain_tracks_.end(); it++)
@@ -238,7 +235,7 @@ TrackerROS::publishCertainTracks(void)
 
       pose_array.poses.push_back(pose);
 
-      track_msg.header.stamp = (*it).current_state.time_stamp; // @todo need to convert to ros time
+      track_msg.header.stamp = rclcpp::Time((*it).current_state.time_stamp);
       track_msg.header.frame_id = kf_tracker_->tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
@@ -282,10 +279,11 @@ TrackerROS::publishAllTracks(void)
    geometry_msgs::msg::PoseArray pose_array;
    multi_target_kf::msg::KFTrack track_msg;
    multi_target_kf::msg::KFTracks tracks_msg;
-   pose_array.header.stamp = kf_tracker_->tracks_[0].current_state.time_stamp;
+   
+   pose_array.header.stamp = rclcpp::Time(kf_tracker_->tracks_[0].current_state.time_stamp);
    pose_array.header.frame_id = kf_tracker_->tracking_frame_;
 
-   for (auto it = kf_tracker_->tracks_.begin(); it != tracks_.end(); it++)
+   for (auto it = kf_tracker_->tracks_.begin(); it != kf_tracker_->tracks_.end(); it++)
    {
       pose.position.x = (*it).current_state.x[0];
       pose.position.y = (*it).current_state.x[1];
@@ -294,7 +292,7 @@ TrackerROS::publishAllTracks(void)
 
       pose_array.poses.push_back(pose);
 
-      track_msg.header.stamp = (*it).current_state.time_stamp; // @todo need to convert to ros time
+      track_msg.header.stamp = rclcpp::Time((*it).current_state.time_stamp); // @todo need to convert to ros time
       track_msg.header.frame_id = kf_tracker_->tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
@@ -332,8 +330,7 @@ TrackerROS::filterLoop(void)
    if(kf_tracker_->debug_)
       printf("[TrackerROS::filterLoop] inside filterLoop...");
 
-   double t=0; // @todo get current ros time
-   kf_tracker_->filterLoop(t);
+   kf_tracker_->filterLoop(this->now().seconds());
 
    // Publish all available tracks
    publishAllTracks();

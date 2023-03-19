@@ -48,6 +48,7 @@ target_include_directories(hungarian
 # define a library target called my_value_converter_library
 add_library(kf_tracker src/kf_tracker.cpp)
 ament_target_dependencies(kf_tracker Eigen3)
+target_link_libraries(kf_tracker hungarian)
 
 # this line to exports the library
 ament_export_targets(kf_tracker HAS_LIBRARY_TARGET)
@@ -64,9 +65,9 @@ rosidl_target_interfaces(kf_tracker
 # target_link_libraries(multi_target_kf Eigen3::Eigen)
 
 
-
 add_executable(tracker_node src/tracker_node.cpp)
 ament_target_dependencies(tracker_node rclcpp Eigen3)
+target_link_libraries(tracker_node kf_tracker)
 target_include_directories(tracker_node
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -103,14 +104,9 @@ install(
   INCLUDES DESTINATION include
 )
 
-install(
-  TARGETS tracker_node
-  EXPORT tracker_node
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
-)
+# Install target
+install(TARGETS tracker_node
+  DESTINATION lib/${PROJECT_NAME})
 
 # add_executable(talker src/publisher_member_function.cpp)
 # ament_target_dependencies(talker rclcpp std_msgs)
