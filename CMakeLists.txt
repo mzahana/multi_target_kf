@@ -57,7 +57,23 @@ target_include_directories(kf_tracker
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 
+# The following to be able to use the custom msgs in the same pkg
+rosidl_target_interfaces(kf_tracker
+                        ${PROJECT_NAME} "rosidl_typesupport_cpp")
+
 # target_link_libraries(multi_target_kf Eigen3::Eigen)
+
+
+
+add_executable(tracker_node src/tracker_node.cpp)
+ament_target_dependencies(tracker_node rclcpp Eigen3)
+target_include_directories(tracker_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+rosidl_target_interfaces(tracker_node
+${PROJECT_NAME} "rosidl_typesupport_cpp")
+# ament_target_dependencies(talker rclcpp std_msgs)
 
 #
 # Install
@@ -81,6 +97,15 @@ install(
 install(
   TARGETS hungarian
   EXPORT hungarian
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+)
+
+install(
+  TARGETS tracker_node
+  EXPORT tracker_node
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
