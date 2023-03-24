@@ -86,6 +86,17 @@ install(
   DESTINATION include
 )
 
+# Install launch files.
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}/
+)
+
+install(DIRECTORY
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+
 install(
   TARGETS kf_tracker
   EXPORT kf_tracker
