@@ -53,8 +53,8 @@ private:
     Eigen::MatrixXd P_; /* State covariance estimate */
     Eigen::MatrixXd R_; /** Measurements covariance matrix */
     Eigen::VectorXd x_; /* Current state vector [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed] */
-    unsigned int NUM_STATES=8; /* State dimension */
-    unsigned int NUM_MEASUREMENTS=8; /* Measurements dimension */
+    unsigned int NUM_STATES=6; /* State dimension */
+    unsigned int NUM_MEASUREMENTS=3; /* Measurements dimension */
     double dt_; /* Prediction sampling time */
     double current_t_; /* Current time stamp */
 
@@ -77,12 +77,18 @@ public:
     bool
     init(void)
     {
+        F_.resize(NUM_STATES,NUM_STATES);
         F_ = Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES);
+        H_.resize(NUM_MEASUREMENTS,NUM_STATES);
         H_ = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_STATES);
+        Q_.resize(NUM_STATES,NUM_STATES);
         Q_ = Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES);
+        P_.resize(NUM_STATES,NUM_STATES);
         P_ = Eigen::MatrixXd::Zero(NUM_STATES,NUM_STATES);
+        R_.resize(NUM_MEASUREMENTS,NUM_MEASUREMENTS);
         R_ = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,NUM_MEASUREMENTS);
         
+        x_.resize(NUM_STATES,1);
         x_ = Eigen::MatrixXd::Zero(NUM_STATES,1);
         debug_ = false;
         dt_=0.01;
@@ -135,7 +141,7 @@ public:
     bool
     setDt(double dt){
         if (dt < 0){
-            printf("WARN [DubinModel::setDt] dt < 0");
+            printf("WARN [DubinModel::setDt] dt < 0 \n");
             return false;
         }
         dt_ = dt;
@@ -158,7 +164,11 @@ public:
     bool
     setSigmaA(double sigma_a)
     {
-        if (sigma_a<=0) return false;
+        if (sigma_a<=0)
+        {
+            printf("ERROR [ConstVel::setSigmaA] sigma_a <=0 \n");
+            return false;
+        }
         sigma_a_ = sigma_a;
 
         if (debug()) std::cout << " sigma_a: " << sigma_a_ << "\n";
@@ -168,7 +178,11 @@ public:
     bool
     setSigmaP(double sigma_p)
     {
-        if (sigma_p<=0) return false;
+        if (sigma_p<=0)
+        {
+            printf("ERROR [ConstVel::setSigmaP] sigma_p <= 0 \n");
+            return false;
+        }
         sigma_p_ = sigma_p;
         if (debug()) std::cout << " sigma_p: " << sigma_p_ << "\n";
         return true;
@@ -177,7 +191,11 @@ public:
     bool
     setSigmaV(double sigma_v)
     {
-        if (sigma_v<=0) return false;
+        if (sigma_v<=0)
+        {
+            printf("ERROR [setSigmaV] seigma_v <= 0 \n");
+            return false;
+        }
         sigma_v_ = sigma_v;
         if (debug()) std::cout << " sigma_v: " << sigma_v_ << "\n";
         return true;
@@ -193,10 +211,10 @@ public:
     f(Eigen::VectorXd x, double dt)
     {
         if(debug())
-            printf("[ConstantVelModel::f] Calculating f");
+            printf("[ConstantVelModel::f] Calculating f \n");
 
         if (dt <= 0){
-            printf("[ConstantVelModel::f] dt is <= 0. Returning same x");
+            printf("[ConstantVelModel::f] dt is <= 0. Returning same x \n");
             return x;
         }
 
@@ -267,7 +285,7 @@ public:
     F(double dt)
     {
         if(debug())
-            printf("[ConstantVelModel::F] Calculating F");
+            printf("[ConstantVelModel::F] Calculating F \n");
 
         // constant velocity model
         // A(0,3) = dt; // x - vx
@@ -326,7 +344,7 @@ public:
     h(Eigen::VectorXd x)
     {
         if(debug())
-            printf("[ConstantVelModel::h] Calculating h");
+            printf("[ConstantVelModel::h] Calculating h \n");
 
         // The following is based on this thesis:
         // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
@@ -349,7 +367,7 @@ public:
     H(void)
     {
         if(debug())
-            printf("[ConstantVelModel::H] Returning H_");
+            printf("[ConstantVelModel::H] Returning H_ \n");
 
         // The following is based on this thesis:
         // (https://dspace.cvut.cz/bitstream/handle/10467/76157/F3-DP-2018-Hert-Daniel-thesis_hertdani.pdf?sequence=-1&isAllowed=y)
@@ -370,7 +388,7 @@ public:
     bool
     H(Eigen::MatrixXd M){
         if(debug_)
-            printf("[ConstVel::H] Setting H_");
+            printf("[ConstVel::H] Setting H_ \n");
 
         if(M.cols() == NUM_STATES && M.rows() == NUM_MEASUREMENTS){
             H_.resize(NUM_MEASUREMENTS, NUM_STATES);
@@ -399,8 +417,16 @@ public:
     bool
     Q(double dt, double sigma_a)
     {
-        if (dt <= 0) return false;
-        if (sigma_a <= 0) return false;
+        if (dt <= 0)
+        {
+            printf("ERORR [ConstVel::Q] dt<=0 \n");
+            return false;
+        }
+        if (sigma_a <= 0)
+        {
+            printf("ERROR [ConstVel::Q] sigma_a <=0 \n");
+            return false;
+        }
 
 
         // Initialize
@@ -471,7 +497,7 @@ public:
     bool
     Q(std::vector<double> v){
         if(v.size()!=NUM_STATES){
-            printf("ERROR [ConstVel::Q] Input vector size != NUM_STATES");
+            printf("ERROR [ConstVel::Q] Input vector size != NUM_STATES. %lu != %u  \n", v.size(), NUM_STATES);
             return false;
         }
         Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_STATES,1);
@@ -500,7 +526,7 @@ public:
     R(Eigen::MatrixXd M)
     {
         if(debug_)
-            printf("[ConstVel::R] Setting R_ from a matrix");
+            printf("[ConstVel::R] Setting R_ from a matrix \n");
 
         if (M.rows() == NUM_MEASUREMENTS && M.cols() == NUM_MEASUREMENTS){
             R_.resize(NUM_MEASUREMENTS,NUM_MEASUREMENTS);
@@ -519,10 +545,10 @@ public:
     bool
     R(std::vector<double> v){
         if(debug_)
-            printf("[ConstVel::R] Setting diagonal R_ from a vector");
+            printf("[ConstVel::R] Setting diagonal R_ from a vector \n");
 
         if((unsigned int)v.size()!=NUM_MEASUREMENTS){
-            printf("ERROR [ConstVel::R] Input vector size != NUM_MEASUREMENTS, v.size = %lu", v.size());
+            printf("ERROR [ConstVel::R] Input vector size != NUM_MEASUREMENTS, v.size = %lu != %u \n", v.size(), NUM_MEASUREMENTS);
             return false;
         }
         Eigen::VectorXd temp = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS,1);
@@ -554,10 +580,14 @@ public:
     bool
     P(double sigma_p, double sigma_v)
     {
-        if (sigma_p <=0 || sigma_v<=0) return false;
+        if (sigma_p <=0 || sigma_v<=0)
+        {
+            printf("ERROR [ConstVel::P] sigma_p or sigma_a <=0 \n");
+            return false;
+        }
         
         if(debug()){
-            printf("[ConstantVelModel::P] Setting P from standard deviations");
+            printf("[ConstantVelModel::P] Setting P from standard deviations \n");
         }
         P_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
         P_.block(0,0,3,3) = sigma_p*sigma_p*Eigen::MatrixXd::Identity(3,3);
@@ -577,7 +607,7 @@ public:
     P(Eigen::MatrixXd M)
     {
         if(debug_){
-            printf("[ConstVel::P] Setting P from a matrix");
+            printf("[ConstVel::P] Setting P from a matrix \n");
         }
 
         if (M.rows() == NUM_STATES && M.cols() == NUM_STATES){
@@ -624,15 +654,15 @@ public:
     kf_state
     predictX(kf_state s, double dt){
         if(debug_)
-            printf("[ConstVel::predictX] Predicting x");
+            printf("[ConstVel::predictX] Predicting x \n");
 
         if (dt <= 0){
-            printf("WARN [ConstVel::predictX] dt = %f <= 0. Returning same state", dt);
+            printf("WARN [ConstVel::predictX] dt = %f <= 0. Returning same state \n", dt);
             return s;
         }
 
         if(debug_)
-            printf("[ConstVel::predictX] det(P) of current state: %f", s.P.determinant());
+            printf("[ConstVel::predictX] det(P) of current state: %f \n", s.P.determinant());
 
         kf_state xx;
         xx.time_stamp = s.time_stamp + dt;
@@ -642,8 +672,8 @@ public:
         xx.x = f(s.x, dt);
 
         if(debug_){
-            printf("[ConstVel::predictX] ||x_new - x_old|| = %f", (xx.x - s.x).norm());
-            printf("[ConstVel::predictX] det(P) of predicted state: %f", xx.P.determinant());
+            printf("[ConstVel::predictX] ||x_new - x_old|| = %f \n", (xx.x - s.x).norm());
+            printf("[ConstVel::predictX] det(P) of predicted state: %f \n", xx.P.determinant());
         }
 
         if(debug_){
@@ -665,7 +695,7 @@ public:
     kf_state
     updateX(sensor_measurement z, kf_state s){
         if(debug_)
-            printf("[ConstVel::updateX] Updating x");
+            printf("[ConstVel::updateX] Updating x \n");
 
         kf_state xx;
         xx.time_stamp = z.time_stamp; //z.time_stamp;
@@ -677,8 +707,8 @@ public:
         xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
 
         if(debug_){
-            printf("[ConstVel::updateX] Done updating state");
-            printf("[ConstVel::updateX] Norm of innovation y = %f ", y.norm());
+            printf("[ConstVel::updateX] Done updating state \n");
+            printf("[ConstVel::updateX] Norm of innovation y = %f \n", y.norm());
             std::cout << "[ConstVel::updateX] predicted state P: \n" << s.P << "\n";
             // std::cout << "[ConstVel::updateX] innovation covariance S: \n" << S << "\n";
             std::cout << "[ConstVel::updateX] Kalman gain: \n" << K << "\n";
@@ -719,7 +749,7 @@ public:
         double LL = -0.5 * (tmp + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
 
         if(debug_)
-            printf("[ConstVel::logLikelihood] Done computing logLikelihood. L= %f", LL);
+            printf("[ConstVel::logLikelihood] Done computing logLikelihood. L= %f \n", LL);
 
         return LL;
     }
@@ -728,7 +758,7 @@ public:
     initStateFromMeasurements(sensor_measurement z){
 
         if(debug_)
-            printf("[ConstVel::initStateFromMeasurements] Initializing state from measurements");
+            printf("[ConstVel::initStateFromMeasurements] Initializing state from measurements \n");
 
         kf_state state;
         state.time_stamp = z.time_stamp;
@@ -750,7 +780,7 @@ public:
         auto y = zz.z - h(xx.x); // assumes length of xx.x = length of zz.z
         auto nrm = y.norm();
         if(debug_)
-            printf("[ConstVel::computeDistance] Distance between state and measurement = %f", nrm);
+            printf("[ConstVel::computeDistance] Distance between state and measurement = %f \n", nrm);
         return nrm;
     }
 

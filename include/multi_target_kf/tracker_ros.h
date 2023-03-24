@@ -23,9 +23,9 @@ public:
     TrackerROS(/* args */);
     ~TrackerROS();
 private:
+    KFTracker *kf_tracker_;
     std::string target_frameid_; /**< Target frame name which will be post-fixed by the target unique number e.g. "tag", post-fixed will be like "tag1" */
     bool listen_tf_; /**< listens to TF to find transofrms of received measurements w.r.t. tracking_frame_ */
-    KFTracker *kf_tracker_;
 
     rclcpp::TimerBase::SharedPtr kf_loop_timer_;
 
@@ -66,7 +66,7 @@ private:
  */
 TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 {
-   // kf_tracker_ = new KFTracker();
+   kf_tracker_ = new KFTracker();
    
     this->declare_parameter("dt_pred", 0.05);
     kf_tracker_->dt_pred_ = this->get_parameter("dt_pred").get_parameter_value().get<double>();
@@ -139,6 +139,7 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
       RCLCPP_ERROR(this->get_logger(),"Could not initialize Kalman filter");
       return;
    }
+   RCLCPP_INFO(this->get_logger(),"Kalman filter is initialized.");
 
 
    // Define timers
@@ -159,6 +160,7 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 
 TrackerROS::~TrackerROS()
 {
+   delete kf_tracker_;
 }
 
 void
