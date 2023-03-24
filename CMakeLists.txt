@@ -108,12 +108,7 @@ install(
 install(TARGETS tracker_node
   DESTINATION lib/${PROJECT_NAME})
 
-# add_executable(talker src/publisher_member_function.cpp)
-# ament_target_dependencies(talker rclcpp std_msgs)
 
-# install(TARGETS
-#   executable
-#   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
