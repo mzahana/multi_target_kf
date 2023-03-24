@@ -95,10 +95,9 @@ void KFTracker::initTracks(void)
    // if(debug_)
    //    printf("[KFTracker::initTracks] Thred id: %s", std::this_thread::get_id());
 
-   // measurement_set_mtx_.lock();
+   measurement_set_mtx_.lock();
    auto z = measurement_set_;
-
-   // measurement_set_mtx_.unlock();
+   measurement_set_mtx_.unlock();
 
    if(z.empty())
    {
@@ -215,7 +214,9 @@ void KFTracker::updateTracks(double t)
    if(tracks_.empty())
       return;
 
+   measurement_set_mtx_.lock();
    auto z = measurement_set_;
+   measurement_set_mtx_.unlock();
 
    if(z.empty())
    {

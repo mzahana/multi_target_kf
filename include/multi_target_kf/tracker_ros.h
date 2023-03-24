@@ -139,7 +139,7 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
       RCLCPP_ERROR(this->get_logger(),"Could not initialize Kalman filter");
       return;
    }
-   RCLCPP_INFO(this->get_logger(),"Kalman filter is initialized.");
+   RCLCPP_INFO(this->get_logger(),"Kalman filter is initialized. Waiting for measurements...");
 
 
    // Define timers
@@ -169,9 +169,9 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
    // if(debug_)
    //    printf("[KFTracker::poseArrayCallback] Thred id: %s", std::this_thread::get_id());
 
-   // measurement_set_mtx_.lock();
-
+   kf_tracker_->measurement_set_mtx_.lock();
    kf_tracker_->measurement_set_.clear();
+   kf_tracker_->measurement_set_mtx_.unlock();
    
    // Sanity check
    if(msg.poses.empty())
@@ -199,7 +199,9 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
             RCLCPP_WARN(this->get_logger(),"[poseArrayCallback] Measurement norm is very large %f", z.z.norm());
          continue;
       }
+      kf_tracker_->measurement_set_mtx_.lock();
       kf_tracker_->measurement_set_.push_back(z);
+      kf_tracker_->measurement_set_mtx_.unlock();
    }
    if(kf_tracker_->debug_){
       RCLCPP_INFO(this->get_logger(),"[poseArrayCallback] Size of measurement_set_ : %lu", kf_tracker_->measurement_set_.size());
