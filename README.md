@@ -14,8 +14,8 @@ A ROS 2 package with an implementation of a linear Kalman filter for multi-targe
   ```bash
   ros2 launch multi_target_kf kf_const_vel.launch.py 
   ```
-* Publish measurements (of one or multiple targets) to the topic `measurement/pose_array`, type of msg is `geometry_msgs/PoseArray`
+* The node subscribes to measurements (of one or multiple targets) to the topic `measurement/pose_array`, type of msg is `geometry_msgs/PoseArray`
 * Estimated states are published in two topics
-  * `/kf/good_tracks` positions and velocities (customn KF message `multi_target_kf::msg::KFTracks`)
+  * `/kf/good_tracks` positions and velocities (custom KF message `multi_target_kf::msg::KFTracks`)
   * `/kf/good_tracks_pose_array` positions to visulaize in RViz 2 `geometry_msgs::msg::PoseArray`
 
