@@ -82,7 +82,7 @@ ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 # install the include/my_cpp_library directory to the install/include/my_cpp_library
 install(
-  DIRECTORY include/multi_target_kf
+  DIRECTORY include/${PROJECT_NAME}
   DESTINATION include
 )
 
