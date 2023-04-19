@@ -102,7 +102,7 @@ void KFTracker::initTracks(void)
    if(z.empty())
    {
       if(debug_){
-         printf("WARN [initTracks] No available measurements. Track initialization is skipped.");
+         printf("WARN [initTracks] No available measurements. Track initialization is skipped.\n");
       }
       return;
    }
@@ -110,12 +110,13 @@ void KFTracker::initTracks(void)
    if(z[0].time_stamp <= last_measurement_t_)
    {
       if(debug_)
-         printf("WARN [initTracks] No new measurements. Track initilization is skipped.");
+         printf("WARN [initTracks] No new measurements. Track initilization is skipped.\n");
+         printf("[initTracks] dt = %f", z[0].time_stamp-last_measurement_t_);
       return;
    }
 
    if(debug_)
-      printf("[KFTracker::initTracks] Initializing tracks...");
+      printf("[KFTracker::initTracks] Initializing tracks...\n");
 
    last_measurement_t_ = z[0].time_stamp;
 
@@ -139,7 +140,7 @@ void KFTracker::initTracks(void)
       tracks_.push_back(track);
    }
    if(debug_){
-      printf("[KFTracker::initTracks] Initialized %lu tracks", tracks_.size());
+      printf("[KFTracker::initTracks] Initialized %lu tracks\n", tracks_.size());
    }
 
    return;
@@ -149,14 +150,14 @@ void KFTracker::initTracks(void)
 void KFTracker::predictTracks(void)
 {
    if(debug_)
-      printf("[KFTracker::predictTracks] Predicting tracks...");
+      printf("[KFTracker::predictTracks] Predicting tracks...\n");
 
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
       int i = it - tracks_.begin();
 
       if(debug_)
-         printf("[KFTracker::predictTracks] Predicting track %d", i);
+         printf("[KFTracker::predictTracks] Predicting track %d \n", i);
 
       (*it).current_state = kf_model_.predictX((*it).current_state, dt_pred_);
 
@@ -166,11 +167,11 @@ void KFTracker::predictTracks(void)
          (*it).buffer.erase((*it).buffer.begin());
 
       if(debug_)
-         printf("[KFTracker::predictTracks] Done predicting track %d", i);
+         printf("[KFTracker::predictTracks] Done predicting track %d \n", i);
    }
 
    if(debug_)
-      printf("[KFTracker::predictTracks] Done predicting all tracks.");
+      printf("[KFTracker::predictTracks] Done predicting all tracks. \n");
    
    return;
 }
@@ -178,14 +179,14 @@ void KFTracker::predictTracks(void)
 void KFTracker::predictTracks(double dt)
 {
    if(debug_)
-      printf("[KFTracker::predictTracks] Predicting tracks...");
+      printf("[KFTracker::predictTracks] Predicting tracks... \n");
 
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
       int i = it - tracks_.begin();
 
       if(debug_)
-         printf("[KFTracker::predictTracks] Predicting track %d", i);
+         printf("[KFTracker::predictTracks] Predicting track %d \n", i);
 
       (*it).current_state = kf_model_.predictX((*it).current_state, dt);
 
@@ -195,11 +196,11 @@ void KFTracker::predictTracks(double dt)
          (*it).buffer.erase((*it).buffer.begin());
 
       if(debug_)
-         printf("[KFTracker::predictTracks] Done predicting track %d", i);
+         printf("[KFTracker::predictTracks] Done predicting track %d \n", i);
    }
 
    if(debug_)
-      printf("[KFTracker::predictTracks] Done predicting all tracks.");
+      printf("[KFTracker::predictTracks] Done predicting all tracks. \n");
    
    return;
 }
@@ -221,7 +222,7 @@ void KFTracker::updateTracks(double t)
    if(z.empty())
    {
       if(debug_)
-         printf("WARN [updateTracks] No available measurements. Skipping update step.");
+         printf("WARN [updateTracks] No available measurements. Skipping update step. \n");
       return;
    }
 
@@ -231,14 +232,14 @@ void KFTracker::updateTracks(double t)
    if (z_t <= last_measurement_t_)
    {
       if(debug_)
-         printf("WARN [updateTracks] No new measurment. Skipping KF update step.");
+         printf("WARN [updateTracks] No new measurment. Skipping KF update step. \n");
       return;
    }
    last_measurement_t_ = z[0].time_stamp;
 
    /** @brief compute loglikelihood matrix to be passed to the Hungarian algorithm */
    if(debug_)
-      printf("[KFTracker::updateTracks] Computing loglikelihood matrix...");
+      printf("[KFTracker::updateTracks] Computing loglikelihood matrix... \n");
    Eigen::MatrixXd LL_mat(tracks_.size(), z.size());
    for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin(); // track index
@@ -270,13 +271,13 @@ void KFTracker::updateTracks(double t)
          else  LL_mat(tr_idx, z_idx) = -9999.0;
 
          if(debug_)
-            printf("[KFTracker::updateTracks] LL_mat(%d,%d) = %f", tr_idx, z_idx, LL_mat(tr_idx, z_idx));
+            printf("[KFTracker::updateTracks] LL_mat(%d,%d) = %f \n", tr_idx, z_idx, LL_mat(tr_idx, z_idx));
       }
 
    } // done looping over tracks & measurements, and computing the LL_mat
 
    if(debug_){
-      printf("[KFTracker::updateTracks] Done computing loglikelihood matrix");
+      printf("[KFTracker::updateTracks] Done computing loglikelihood matrix \n");
       std::cout << "loglikelihood matrix: \n" << LL_mat << "\n";
    }
 
@@ -287,7 +288,7 @@ void KFTracker::updateTracks(double t)
    */
    if (true){ //set to true if using loglikelihood instead of distance
       if(debug_)
-         printf("[KFTracker::updateTracks] Preparing cost matrix for the Hungarian algorithm...");
+         printf("[KFTracker::updateTracks] Preparing cost matrix for the Hungarian algorithm... \n");
       // negate to convert to cost
       LL_mat = -1.0*LL_mat;
       // subtract minimum value to make sure all the elements are positive
@@ -304,7 +305,7 @@ void KFTracker::updateTracks(double t)
      costMat.push_back(row);
   }
   if(debug_){
-     printf("[KFTracker::updateTracks] Cost matrix is prepared");
+     printf("[KFTracker::updateTracks] Cost matrix is prepare \nd");
      std::cout << "costMat: \n";
       for(long unsigned int ii=0; ii<costMat.size(); ii++){
          for(long unsigned int jj=0; jj<costMat[ii].size(); jj++)
@@ -315,12 +316,12 @@ void KFTracker::updateTracks(double t)
 
    /** @brief  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
    if(debug_)
-      printf("[KFTracker::updateTracks] Executing Hungarian algorithm...");
+      printf("[KFTracker::updateTracks] Executing Hungarian algorithm... \n");
    
    std::vector<int> assignment; // Assignment vector, has size of tracks_
    double cost = HungAlgo_.Solve(costMat, assignment);
    if(debug_){
-      printf("[KFTracker::updateTracks] Hungarian algorithm is executed. cost = %f", cost);
+      printf("[KFTracker::updateTracks] Hungarian algorithm is executed. cost = %f \n", cost);
       std::cout << "Assignment vector: \n";
       for(long unsigned int i=0; i<assignment.size(); i++){
          std::cout << assignment[i] << " ";
@@ -339,7 +340,7 @@ void KFTracker::updateTracks(double t)
    */
 
    if(debug_)
-      printf("[KFTracker::updateTracks] Updating tracks using assigned measurements");
+      printf("[KFTracker::updateTracks] Updating tracks using assigned measurements \n");
    for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin();
 
@@ -373,7 +374,7 @@ void KFTracker::updateTracks(double t)
 
    /** @todo  If there are reamining measurements, use add them as new tracks. */
    if(debug_)
-      printf("[KFTracker::updateTracks] Adding new tracks using non-assigned measurements");
+      printf("[KFTracker::updateTracks] Adding new tracks using non-assigned measurements \n");
    for( long unsigned int m=0; m<z.size(); m++){
       if(assigned_z(m) > 0) continue; // this measurement is assigned, so skip it
       kf_state state;
@@ -394,7 +395,7 @@ void KFTracker::updateTracks(double t)
 
       tracks_.push_back(new_track);
       if(debug_){
-         printf( "WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %lu ******* ", m);
+         printf( "WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %lu ******* \n ", m);
       }      
    }
 
@@ -411,13 +412,13 @@ void KFTracker::removeUncertainTracks(){
       auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
       auto V = sqrt(std::fabs(P_p.determinant()));
       if(debug_)
-         printf( "WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);      
+         printf( "WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f . number of measurements %d. \n", i, V, (*it).n);      
 
       // Remove tracks with high uncertainty
       if(V > V_max_ || isinf( (*it).current_state.x.norm() ))
       {
          if(debug_){
-            printf( "WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f is high (> %f). Removing it.", i, V, V_max_);
+            printf( "WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f is high (> %f). Removing it.\n", i, V, V_max_);
             printf( "WARN [KFTracker::removeUncertainTracks] Track %d norm(state) = %f", i, (*it).current_state.x.norm());
          }
          
@@ -430,7 +431,7 @@ void
 KFTracker::updateCertainTracks(void)
 {
    if(debug_){
-      printf("[KFTracker::updateCertainTracks] Number of available tracks = %lu", tracks_.size());
+      printf("[KFTracker::updateCertainTracks] Number of available tracks = %lu \n", tracks_.size());
    }
 
    if(tracks_.empty())
@@ -444,7 +445,7 @@ KFTracker::updateCertainTracks(void)
       auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
       auto V = sqrt(std::fabs(P_p.determinant()));
       if(debug_)
-         printf( "WARN [KFTracker::updateCertainTracks] Track %d uncertainty = %f . number of measurements %d.", i, V, (*it).n);
+         printf( "WARN [KFTracker::updateCertainTracks] Track %d uncertainty = %f . number of measurements %d.\n", i, V, (*it).n);
       // If certainty is acceptable, add it to certain_tracks_
       if (V <= V_certain_ && (*it).n >= (unsigned int)N_meas_)
       {
@@ -453,7 +454,7 @@ KFTracker::updateCertainTracks(void)
       else
       {
          if(debug_){
-            printf("WARN Track is not considered certain. V = %f, N = %d", V, (*it).n);
+            printf("WARN Track is not considered certain. V = %f, N = %d \n", V, (*it).n);
          }
       }
    }
@@ -466,13 +467,13 @@ void
 KFTracker::filterLoop(double t)
 {
    if(debug_)
-      printf("[KFTracker::filterLoop] inside filterLoop...");
+      printf("[KFTracker::filterLoop] inside filterLoop... \n");
 
    if(tracks_.empty())
    {
       /* Initialize tracks with current measurements. Then, return */
       if(debug_){
-         printf("WARN [KFTracker::filterLoop] No tracks to update. Initializing tracks using current measurements.");
+         printf("WARN [KFTracker::filterLoop] No tracks to update. Initializing tracks using current measurements.\n");
       }
       initTracks();
 

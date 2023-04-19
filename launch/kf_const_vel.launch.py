@@ -10,7 +10,7 @@ def generate_launch_description():
     # Add argument for the path of the yaml file
     kf_yaml = LaunchConfiguration('kf_yaml')
     detections_topic = LaunchConfiguration('detections_topic')
-    namespace = LaunchConfiguration('namespace')
+    namespace = LaunchConfiguration('kf_ns')
 
     config = os.path.join(
         get_package_share_directory('multi_target_kf'),
@@ -29,7 +29,7 @@ def generate_launch_description():
     )
 
     namespace_launch_arg = DeclareLaunchArgument(
-        'namespace',
+        'kf_ns',
         default_value=''
     )
 
