@@ -402,7 +402,7 @@ void KFTracker::updateTracks(double t)
 
 }// updateTracks DONE 
 
-void KFTracker::removeUncertainTracks(){
+void KFTracker::removeUncertainTracks(double t){
    if(tracks_.empty())
       return;
 
@@ -424,7 +424,14 @@ void KFTracker::removeUncertainTracks(){
          }
          
          tracks_.erase(it--);
+         continue;
       }
+
+      // Remove track if it has not received measurements for long time
+      // if(abs(t-(*it).current_state.time_stamp))
+      // {
+      //    tracks_.erase(it--);
+      // }
    }  
 }
 
@@ -495,7 +502,7 @@ KFTracker::filterLoop(double t)
    updateCertainTracks();
 
    // Remove bad tracks
-   removeUncertainTracks();
+   removeUncertainTracks(t);
 
    return;
 }

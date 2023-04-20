@@ -66,6 +66,7 @@ struct kf_track
    kf_state current_state;
    std::vector<kf_state> buffer;
    unsigned int n; /**< Number of received measurements. */
+   double last_measurement_time;
 };
 
 const unsigned char kMODEL = MODEL::DUBINS;
@@ -153,8 +154,9 @@ public:
 
    /**
     * @brief Removes tracks  (from tracks_ ) with position uncertainty > V_max__ 
+    * @param t : Current time. Used to remove old tracks with no recent measurements
     */
-   void removeUncertainTracks(void);
+   void removeUncertainTracks(double t);
 
    /**
     * @brief Executes one loop of the KF filter
