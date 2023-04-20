@@ -130,8 +130,8 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
     this->declare_parameter("r_diag", r_diag);
     kf_tracker_->r_diag_ = this->get_parameter("r_diag").get_parameter_value().get<std::vector<double>>();
 
-   kf_tracker_->last_measurement_t_ = this->now().seconds();
-   kf_tracker_->last_prediction_t_ = this->now().seconds();
+   kf_tracker_->last_measurement_t_ = 0.0; //this->now().seconds();
+   kf_tracker_->last_prediction_t_ = 0.0; //this->now().seconds();
 
    RCLCPP_INFO(this->get_logger(),"Initializing Kalman filter...");
    if(!kf_tracker_->initKF()) 
@@ -183,10 +183,14 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
       return;
    }
 
+   auto now = this->now().seconds();
    for (auto it = msg.poses.begin(); it != msg.poses.end(); it++)
    {
       sensor_measurement z;
-      z.time_stamp = static_cast<double>(msg.header.stamp.nanosec/1e9) ;
+      
+      z.time_stamp = now; //static_cast<double>(msg.header.stamp.nanosec/1e9) ;
+      if(kf_tracker_->debug_)
+         RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: Measurement time = %f.", z.time_stamp);
       z.id = 0;
       z.z = Eigen::MatrixXd::Zero(3,1); // 3, because it's always position only, for now!
       z.z(0) = (*it).position.x;
