@@ -582,7 +582,7 @@ public:
     {
         if (sigma_p <=0 || sigma_v<=0)
         {
-            printf("ERROR [ConstVel::P] sigma_p or sigma_a <=0 \n");
+            printf("ERROR [ConstVel::P] sigma_p or sigma_v <=0 \n");
             return false;
         }
         

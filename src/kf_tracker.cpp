@@ -109,9 +109,10 @@ void KFTracker::initTracks(void)
 
    if(z[0].time_stamp <= last_measurement_t_)
    {
-      if(debug_)
+      if(debug_){
          printf("WARN [initTracks] No new measurements. Track initilization is skipped.\n");
-         printf("[initTracks] dt = %f", z[0].time_stamp-last_measurement_t_);
+         printf("[initTracks] z[0].time_stamp = %f. last_measurement_t_= %f \n", z[0].time_stamp,last_measurement_t_);
+      }
       return;
    }
 
@@ -232,7 +233,7 @@ void KFTracker::updateTracks(double t)
    if (z_t <= last_measurement_t_)
    {
       if(debug_)
-         printf("WARN [updateTracks] No new measurment. Skipping KF update step. \n");
+         printf("WARN [updateTracks] No new measurement. Skipping KF update step. \n");
       return;
    }
    last_measurement_t_ = z[0].time_stamp;
