@@ -28,6 +28,7 @@ private:
     bool listen_tf_; /**< listens to TF to find transofrms of received measurements w.r.t. tracking_frame_ */
 
     rclcpp::TimerBase::SharedPtr kf_loop_timer_;
+    rclcpp::TimerBase::SharedPtr params_timer_;
 
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr good_poses_pub_; /**< ROS publisher for KF estimated (certain) tracks positions */
     rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr good_tracks_pub_;/**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
@@ -59,6 +60,11 @@ private:
     */
    void filterLoop(void);
 
+   /**
+    * @brief Parameters timer's callback
+   */
+  void paramsTimerCallback(void);
+
 };
 
 /**
@@ -67,68 +73,75 @@ private:
 TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 {
    kf_tracker_ = new KFTracker();
-   
-    this->declare_parameter("dt_pred", 0.05);
-    kf_tracker_->dt_pred_ = this->get_parameter("dt_pred").get_parameter_value().get<double>();
 
-    this->declare_parameter("V_max", 20.0);
-    kf_tracker_->V_max_ = this->get_parameter("V_max").get_parameter_value().get<double>();
+   this->declare_parameter("dt_pred", 0.05);
+   kf_tracker_->dt_pred_ = this->get_parameter("dt_pred").get_parameter_value().get<double>();
 
-    this->declare_parameter("V_certain", 1.0);
-    kf_tracker_->V_certain_ = this->get_parameter("V_certain").get_parameter_value().get<double>();
+   this->declare_parameter("V_max", 20.0);
+   kf_tracker_->V_max_ = this->get_parameter("V_max").get_parameter_value().get<double>();
 
-    this->declare_parameter("N_meas", 20);
-    kf_tracker_->N_meas_ = this->get_parameter("N_meas").get_parameter_value().get<int>();
-   
-    this->declare_parameter("l_threshold", -2.0);
-    kf_tracker_->l_threshold_ = this->get_parameter("l_threshold").get_parameter_value().get<double>();
+   this->declare_parameter("V_certain", 1.0);
+   kf_tracker_->V_certain_ = this->get_parameter("V_certain").get_parameter_value().get<double>();
 
-    this->declare_parameter("state_buffer_length", 40);
-    kf_tracker_->state_buffer_size_ = this->get_parameter("state_buffer_length").get_parameter_value().get<int>();
+   this->declare_parameter("N_meas", 20);
+   kf_tracker_->N_meas_ = this->get_parameter("N_meas").get_parameter_value().get<int>();
+
+   this->declare_parameter("l_threshold", -2.0);
+   kf_tracker_->l_threshold_ = this->get_parameter("l_threshold").get_parameter_value().get<double>();
+
+   this->declare_parameter("state_buffer_length", 40);
+   kf_tracker_->state_buffer_size_ = this->get_parameter("state_buffer_length").get_parameter_value().get<int>();
 
    RCLCPP_INFO(this->get_logger(),"State buffer length corresponds to %f seconds",
-                kf_tracker_->dt_pred_*(double)kf_tracker_->state_buffer_size_);
+               kf_tracker_->dt_pred_*(double)kf_tracker_->state_buffer_size_);
 
    this->declare_parameter("do_kf_update_step", true);
-    kf_tracker_->do_update_step_ = this->get_parameter("do_kf_update_step").get_parameter_value().get<bool>();
+   kf_tracker_->do_update_step_ = this->get_parameter("do_kf_update_step").get_parameter_value().get<bool>();
 
-    this->declare_parameter("measurement_off_time", 2.0);
-    kf_tracker_->measurement_off_time_ = this->get_parameter("measurement_off_time").get_parameter_value().get<double>();
+   this->declare_parameter("measurement_off_time", 2.0);
+   kf_tracker_->measurement_off_time_ = this->get_parameter("measurement_off_time").get_parameter_value().get<double>();
 
-    this->declare_parameter("print_debug_msg", false);
-    kf_tracker_->debug_ = this->get_parameter("print_debug_msg").get_parameter_value().get<bool>();
+   this->declare_parameter("print_debug_msg", false);
+   kf_tracker_->debug_ = this->get_parameter("print_debug_msg").get_parameter_value().get<bool>();
 
-    this->declare_parameter("tracking_frame", "map");
-    kf_tracker_->tracking_frame_ = this->get_parameter("tracking_frame").get_parameter_value().get<std::string>();
+   this->declare_parameter("tracking_frame", "map");
+   kf_tracker_->tracking_frame_ = this->get_parameter("tracking_frame").get_parameter_value().get<std::string>();
 
-    this->declare_parameter("target_frameid", "tag");
-    target_frameid_ = this->get_parameter("target_frameid").get_parameter_value().get<std::string>();
+   this->declare_parameter("target_frameid", "tag");
+   target_frameid_ = this->get_parameter("target_frameid").get_parameter_value().get<std::string>();
 
-    this->declare_parameter("use_track_id", true);
-    kf_tracker_->use_track_id_ = this->get_parameter("use_track_id").get_parameter_value().get<bool>();
+   this->declare_parameter("use_track_id", true);
+   kf_tracker_->use_track_id_ = this->get_parameter("use_track_id").get_parameter_value().get<bool>();
 
-    this->declare_parameter("dist_threshold", 2.0);
-    kf_tracker_->dist_threshold_ = this->get_parameter("dist_threshold").get_parameter_value().get<double>();
+   this->declare_parameter("dist_threshold", 2.0);
+   kf_tracker_->dist_threshold_ = this->get_parameter("dist_threshold").get_parameter_value().get<double>();
 
-    this->declare_parameter("sigma_a", 1.0);
-    kf_tracker_->sigma_a_ = this->get_parameter("sigma_a").get_parameter_value().get<double>();
+   this->declare_parameter("sigma_a", 1.0);
+   kf_tracker_->sigma_a_ = this->get_parameter("sigma_a").get_parameter_value().get<double>();
 
-    this->declare_parameter("sigma_p", 1.0);
-    kf_tracker_->sigma_p_ = this->get_parameter("sigma_p").get_parameter_value().get<double>();
+   this->declare_parameter("sigma_p", 1.0);
+   kf_tracker_->sigma_p_ = this->get_parameter("sigma_p").get_parameter_value().get<double>();
 
-    this->declare_parameter("sigma_v", 1.0);
-    kf_tracker_->sigma_v_ = this->get_parameter("sigma_v").get_parameter_value().get<double>();
+   this->declare_parameter("sigma_v", 1.0);
+   kf_tracker_->sigma_v_ = this->get_parameter("sigma_v").get_parameter_value().get<double>();
    if(kf_tracker_->debug_){
       RCLCPP_INFO(this->get_logger(),"sigma_a: %f, sigma_p: %f, sigma_v: %f", kf_tracker_->sigma_a_, kf_tracker_->sigma_p_, kf_tracker_->sigma_v_);
    }
 
    std::vector<double> q_diag {0.1, 0.1, 0.1, 0.1, 0.1, 0.1 ,0.1 , 0.1, 0.1};
-    this->declare_parameter("q_diag", q_diag);
-    kf_tracker_->q_diag_ = this->get_parameter("q_diag").get_parameter_value().get<std::vector<double>>();
+   this->declare_parameter("q_diag", q_diag);
+   kf_tracker_->q_diag_ = this->get_parameter("q_diag").get_parameter_value().get<std::vector<double>>();
 
-    std::vector<double> r_diag {0.01, 0.01, 0.01};
-    this->declare_parameter("r_diag", r_diag);
-    kf_tracker_->r_diag_ = this->get_parameter("r_diag").get_parameter_value().get<std::vector<double>>();
+   std::vector<double> r_diag {0.01, 0.01, 0.01};
+   this->declare_parameter("r_diag", r_diag);
+   kf_tracker_->r_diag_ = this->get_parameter("r_diag").get_parameter_value().get<std::vector<double>>();
+
+   this->declare_parameter("r_diag_x", 0.01);
+   this->declare_parameter("r_diag_y", 0.01);
+   this->declare_parameter("r_diag_z", 0.01);
+
+   this->declare_parameter("track_mesurement_timeout", 3.0);
+   kf_tracker_->track_mesurement_timeout_ = this->get_parameter("track_mesurement_timeout").get_parameter_value().get<double>();
 
    kf_tracker_->last_measurement_t_ = 0.0; //this->now().seconds();
    kf_tracker_->last_prediction_t_ = 0.0; //this->now().seconds();
@@ -147,10 +160,13 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
    kf_loop_timer_ = this->create_wall_timer(
       duration_ms, std::bind(&TrackerROS::filterLoop, this)); // Define timer for constant loop rate
 
+   params_timer_ = this->create_wall_timer(
+      1000ms, std::bind(&TrackerROS::paramsTimerCallback, this));
+
    // Define subscribers
    pose_array_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
       "measurement/pose_array", 10, std::bind(&TrackerROS::poseArrayCallback, this, _1));
-   
+
    // Define publishers
    good_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/good_tracks_pose_array", 10);
    all_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/all_tracks_pose_array", 10);
@@ -336,7 +352,7 @@ void
 TrackerROS::filterLoop(void)
 {
    if(kf_tracker_->debug_)
-      printf("[TrackerROS::filterLoop] inside filterLoop...");
+      RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
 
    kf_tracker_->filterLoop(this->now().seconds());
 
@@ -349,5 +365,27 @@ TrackerROS::filterLoop(void)
    return;
 }
 
+void
+TrackerROS::paramsTimerCallback()
+{
+   kf_tracker_->kf_model_.setSigmaA(this->get_parameter("sigma_a").as_double());
+   // RCLCPP_INFO(this->get_logger(), "sigma_a %f", kf_tracker_->sigma_a_);
+   
+   double r_diag_x = this->get_parameter("r_diag_x").as_double();
+   double r_diag_y = this->get_parameter("r_diag_y").as_double();
+   double r_diag_z = this->get_parameter("r_diag_z").as_double();
+   std::vector<double> r_diag = {r_diag_x, r_diag_y, r_diag_z};
+   
+   if (! kf_tracker_->kf_model_.R(r_diag))
+      RCLCPP_ERROR(this->get_logger(), "[paramsTimerCallback] Could not set r_diag");
+
+   kf_tracker_->V_max_ =  this->get_parameter("V_max").as_double();
+   kf_tracker_->V_certain_ =  this->get_parameter("V_certain").as_double();
+   int n =  this->get_parameter("N_meas").as_int();
+   if (n>0)
+      kf_tracker_->N_meas_ = n;
+      
+   kf_tracker_->l_threshold_ =  this->get_parameter("l_threshold").as_double();
+}
 
 #endif

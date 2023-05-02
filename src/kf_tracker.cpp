@@ -56,6 +56,7 @@ use_track_id_(false),
 sigma_a_(10),
 sigma_p_(1),
 sigma_v_(1),
+track_mesurement_timeout_(3.0),
 debug_(false)
 {
    
@@ -136,6 +137,7 @@ void KFTracker::initTracks(void)
       kf_track track;
       track.n = 1; // Number of measurements = 1 since it's the 1st one
       track.current_state = state;
+      track.last_measurement_time = state.time_stamp;
       track.buffer.push_back(state);
 
       tracks_.push_back(track);
@@ -306,7 +308,7 @@ void KFTracker::updateTracks(double t)
      costMat.push_back(row);
   }
   if(debug_){
-     printf("[KFTracker::updateTracks] Cost matrix is prepare \nd");
+     printf("[KFTracker::updateTracks] Cost matrix is prepared.\n");
      std::cout << "costMat: \n";
       for(long unsigned int ii=0; ii<costMat.size(); ii++){
          for(long unsigned int jj=0; jj<costMat[ii].size(); jj++)
@@ -357,6 +359,7 @@ void KFTracker::updateTracks(double t)
             // correct/update track
             (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
             (*it_t).n += 1;
+            (*it_t).last_measurement_time = z[assignment[tr_idx]].time_stamp; 
          }
       }
 
@@ -392,6 +395,7 @@ void KFTracker::updateTracks(double t)
       new_track.id = z[m].id;
       new_track.current_state = state;
       new_track.n = 1;
+      new_track.last_measurement_time = state.time_stamp;
       // new_track.buffer.push_back(state);
 
       tracks_.push_back(new_track);
@@ -402,7 +406,7 @@ void KFTracker::updateTracks(double t)
 
 }// updateTracks DONE 
 
-void KFTracker::removeUncertainTracks(double t){
+void KFTracker::removeUncertainTracks(){
    if(tracks_.empty())
       return;
 
@@ -428,10 +432,10 @@ void KFTracker::removeUncertainTracks(double t){
       }
 
       // Remove track if it has not received measurements for long time
-      // if(abs(t-(*it).current_state.time_stamp))
-      // {
-      //    tracks_.erase(it--);
-      // }
+      if(abs((*it).current_state.time_stamp - (*it).last_measurement_time) > track_mesurement_timeout_)
+      {
+         tracks_.erase(it--);
+      }
    }  
 }
 
@@ -442,10 +446,10 @@ KFTracker::updateCertainTracks(void)
       printf("[KFTracker::updateCertainTracks] Number of available tracks = %lu \n", tracks_.size());
    }
 
+   certain_tracks_.clear();
    if(tracks_.empty())
       return;
 
-   certain_tracks_.clear();
    for (auto it = tracks_.begin(); it != tracks_.end(); it++)
    {
       int i = it - tracks_.begin();
@@ -502,7 +506,7 @@ KFTracker::filterLoop(double t)
    updateCertainTracks();
 
    // Remove bad tracks
-   removeUncertainTracks(t);
+   removeUncertainTracks();
 
    return;
 }

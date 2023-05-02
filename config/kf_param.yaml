@@ -2,7 +2,7 @@
   ros__parameters:
     # Rate of prediction step
     dt_pred: 0.01
-    print_debug_msg: false
+    print_debug_msg: False
 
     # Diagonal elements of the process covariance matrix Q, for constant acceleration model
     # [x-x, y-y, z-z, vx-vx, vy-vy, vz-vz, ax-ax, ay-ay, az-az]
@@ -15,11 +15,11 @@
     # q_diag: [5,5,5,10,10,10]
 
     # Diagonal elements of the process covariance matrix Q, for constant velocity or acceleration models
-    r_diag: [0.01, 0.01, 0.01]
+    r_diag: [1.0, 1.0, 1.0]
 
     # Standard deviation of the random acceleration variable.
     # Used in computing Q matrix
-    sigma_a: 10.0
+    sigma_a: 600.0
 
     # Standard deviation of position
     # Used in computing initial P (state estimate covariance) matrix
@@ -29,14 +29,14 @@
     sigma_v: 1.0
 
     # Provide estimate w.r.t this frame
-    tracking_frame: 'interceptor_odom'
+    tracking_frame: 'interceptor/local_pose_ENU'
     # Topic name of the tag detections
     apriltags_topic: '/tag_detections'
     # Frame name of the detected target
     target_frameid: 'tag'
 
     # Get target measurements from TF tree
-    listen_tf: true
+    listen_tf: False
 
     # Maximum uncertainty before rejecting a track [m^3] 
     V_max: 100.0
@@ -52,3 +52,6 @@
 
     # False: Doesn't consider measurement track ID in measurement-state association 
     use_track_id: false
+
+    # Maximum time (seconds) from last measurement before considering a track uncertain and removing it
+    track_mesurement_timeout: 3.0

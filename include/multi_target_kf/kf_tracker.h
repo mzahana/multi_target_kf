@@ -80,11 +80,11 @@ const unsigned char kMODEL = MODEL::DUBINS;
 class KFTracker
 {
 private:
-   ConstantVelModel kf_model_; /* Constant velocity KF model */
    // DubinsModel kf_model_; /* 3D Dubins EKF model */
 
    HungarianAlgorithm HungAlgo_; /** Hungarian algorithm object for state-measurement assignment */
 public:
+   ConstantVelModel kf_model_; /* Constant velocity KF model */
 
    double dt_pred_;
    double last_prediction_t_;
@@ -121,6 +121,8 @@ public:
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
 
+   double track_mesurement_timeout_; /* maximum time (seconds) from last measurement before considering a track uncertain and removing it */
+
    
 
    bool debug_; /**< for printing debug message */
@@ -154,9 +156,8 @@ public:
 
    /**
     * @brief Removes tracks  (from tracks_ ) with position uncertainty > V_max__ 
-    * @param t : Current time. Used to remove old tracks with no recent measurements
     */
-   void removeUncertainTracks(double t);
+   void removeUncertainTracks();
 
    /**
     * @brief Executes one loop of the KF filter
