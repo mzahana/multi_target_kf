@@ -132,7 +132,7 @@ void KFTracker::initTracks(void)
       state.x.block(3,0,kf_model_.numStates()-3,1) = 0.001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
       state.P = kf_model_.P();//Q(dt_pred_);
-      // state.P.block(0,0,3,3) = kf_model_.R();
+      state.P.block(0,0,3,3) = kf_model_.R();
 
       kf_track track;
       track.n = 1; // Number of measurements = 1 since it's the 1st one
