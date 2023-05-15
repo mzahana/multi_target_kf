@@ -70,6 +70,13 @@ private:
 /**
  * @brief Class definition
  */
+
+TrackerROS::~TrackerROS()
+{
+   /* Destructor */
+   delete kf_tracker_;
+}
+
 TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
 {
    kf_tracker_ = new KFTracker();
@@ -174,10 +181,6 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
    all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/all_tracks", 10);
 }
 
-TrackerROS::~TrackerROS()
-{
-   delete kf_tracker_;
-}
 
 void
 TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
@@ -200,6 +203,7 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
    }
 
    auto now = this->now().seconds();
+   kf_tracker_->measurement_set_mtx_.lock();
    for (auto it = msg.poses.begin(); it != msg.poses.end(); it++)
    {
       sensor_measurement z;
@@ -219,16 +223,16 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
             RCLCPP_WARN(this->get_logger(),"[poseArrayCallback] Measurement norm is very large %f", z.z.norm());
          continue;
       }
-      kf_tracker_->measurement_set_mtx_.lock();
+      
       kf_tracker_->measurement_set_.push_back(z);
-      kf_tracker_->measurement_set_mtx_.unlock();
    }
+
    if(kf_tracker_->debug_){
       RCLCPP_INFO(this->get_logger(),"[poseArrayCallback] Size of measurement_set_ : %lu", kf_tracker_->measurement_set_.size());
       RCLCPP_INFO(this->get_logger(),"[poseArrayCallback] Size of msg->poses : %lu", msg.poses.size());
    }
 
-   // measurement_set_mtx_.unlock();
+   kf_tracker_->measurement_set_mtx_.unlock();
 
    return;
 
@@ -247,7 +251,11 @@ TrackerROS::publishCertainTracks(void)
    geometry_msgs::msg::PoseArray pose_array;
    multi_target_kf::msg::KFTrack track_msg;
    multi_target_kf::msg::KFTracks tracks_msg;
-   pose_array.header.stamp = rclcpp::Time(kf_tracker_->certain_tracks_[0].current_state.time_stamp);
+   // rclcpp::Time time;
+   // double timeInSeconds = kf_tracker_->certain_tracks_[0].current_state.time_stamp;
+   // time.seconds(static_cast<int>(timeInSeconds));
+   // time.nanoseconds(static_cast<int>((timeInSeconds - static_cast<int>(timeInSeconds)) * 1e9));
+   pose_array.header.stamp = rclcpp::Time(static_cast<uint64_t>(kf_tracker_->certain_tracks_[0].current_state.time_stamp * 1e9));
    pose_array.header.frame_id = kf_tracker_->tracking_frame_;
 
    for (auto it = kf_tracker_->certain_tracks_.begin(); it != kf_tracker_->certain_tracks_.end(); it++)
@@ -259,7 +267,7 @@ TrackerROS::publishCertainTracks(void)
 
       pose_array.poses.push_back(pose);
 
-      track_msg.header.stamp = rclcpp::Time((*it).current_state.time_stamp);
+      track_msg.header.stamp = rclcpp::Time(static_cast<uint64_t>((*it).current_state.time_stamp*1e9));
       track_msg.header.frame_id = kf_tracker_->tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
@@ -304,7 +312,7 @@ TrackerROS::publishAllTracks(void)
    multi_target_kf::msg::KFTrack track_msg;
    multi_target_kf::msg::KFTracks tracks_msg;
    
-   pose_array.header.stamp = rclcpp::Time(kf_tracker_->tracks_[0].current_state.time_stamp);
+   pose_array.header.stamp = rclcpp::Time(static_cast<uint64_t>(kf_tracker_->tracks_[0].current_state.time_stamp*1e9));
    pose_array.header.frame_id = kf_tracker_->tracking_frame_;
 
    for (auto it = kf_tracker_->tracks_.begin(); it != kf_tracker_->tracks_.end(); it++)
@@ -316,7 +324,7 @@ TrackerROS::publishAllTracks(void)
 
       pose_array.poses.push_back(pose);
 
-      track_msg.header.stamp = rclcpp::Time((*it).current_state.time_stamp); // @todo need to convert to ros time
+      track_msg.header.stamp = rclcpp::Time(static_cast<uint64_t>((*it).current_state.time_stamp*1e9)); // @todo need to convert to ros time
       track_msg.header.frame_id = kf_tracker_->tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
