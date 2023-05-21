@@ -132,7 +132,7 @@ void KFTracker::initTracks(void)
       state.x.block(3,0,kf_model_.numStates()-3,1) = 0.001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
       
       state.P = kf_model_.P();//Q(dt_pred_);
-      state.P.block(0,0,3,3) = kf_model_.R();
+      // state.P.block(0,0,3,3) = dt_pred_*dt_pred_ * kf_model_.R();
 
       kf_track track;
       track.n = 1; // Number of measurements = 1 since it's the 1st one
@@ -357,6 +357,8 @@ void KFTracker::updateTracks(double t)
          if(LL >= l_threshold_){
             assigned_z(assignment[tr_idx]) = 1;
             // correct/update track
+            double dt2 = z[assignment[tr_idx]].time_stamp -  (*it_t).last_measurement_time;
+            dt2 *= dt2; // square it
             (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
             (*it_t).n += 1;
             (*it_t).last_measurement_time = z[assignment[tr_idx]].time_stamp; 
@@ -387,7 +389,7 @@ void KFTracker::updateTracks(double t)
       state.x.block(0,0,3,1) = z[m].z;
       state.x.block(3,0,kf_model_.numStates()-3,1) = Eigen::MatrixXd::Zero(kf_model_.numStates()-3,1);
 
-      state.P = kf_model_.Q(dt_pred_);
+      state.P = kf_model_.Q(dt_pred_);//kf_model_.P(); //kf_model_.Q(dt_pred_);
       // state.P.block(0,0,3,3) = kf_model_.R();
       state.time_stamp = z[m].time_stamp;
       

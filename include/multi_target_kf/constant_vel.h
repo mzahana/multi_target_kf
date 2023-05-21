@@ -721,6 +721,38 @@ public:
     }
 
     /**
+     * dt double time difference between last measurement and current measurement.
+     *  This is used to scale the R_ matrix according to measurment's sampling time
+    */
+    kf_state
+    updateX(sensor_measurement z, kf_state s, double dt){
+        if(debug_)
+            printf("[ConstVel::updateX] Updating x \n");
+
+        kf_state xx;
+        xx.time_stamp = z.time_stamp; //z.time_stamp;
+
+        Eigen::VectorXd y = z.z - h(s.x); // innovation
+        Eigen::MatrixXd S = H()*s.P*H().transpose() + dt*dt*R_; // innovation covariance
+        Eigen::MatrixXd K = s.P*H().transpose()*S.inverse(); // optimal Kalman gain
+        xx.x = s.x + K*y; 
+        xx.P = (Eigen::MatrixXd::Identity(NUM_STATES,NUM_STATES) - K*H())*s.P;
+
+        if(debug_){
+            printf("[ConstVel::updateX] Done updating state \n");
+            printf("[ConstVel::updateX] Norm of innovation y = %f \n", y.norm());
+            std::cout << "[ConstVel::updateX] predicted state P: \n" << s.P << "\n";
+            // std::cout << "[ConstVel::updateX] innovation covariance S: \n" << S << "\n";
+            std::cout << "[ConstVel::updateX] Kalman gain: \n" << K << "\n";
+            std::cout << "[ConstVel::updateX] uncorrected state: \n" << s.x << "\n";
+            std::cout << "[ConstVel::updateX] measurement: \n" << z.z << "\n";
+            std::cout << "[ConstVel::updateX] corrected state: \n" << xx.x << "\n";
+        }
+
+        return xx;
+    }
+
+    /**
     * @brief Computes log Likelihood between predicted state and a measurement
     * @param xx kf_state Predicted state (time, state, covariance)
     * @param z sensor_measurement measurement (time, state, covariance)
