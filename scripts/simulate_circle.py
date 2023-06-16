@@ -23,7 +23,7 @@ class CircleTrajectory(Node):
 
         self._poses_msg = PoseArray()
 
-        self.declare_parameter("frame_id", "map")
+        self.declare_parameter("frame_id", "interceptor/local_pose_ENU")
         self._frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
 
         self._timer = self.create_timer(self._dt, self.timerCallback)
