@@ -285,6 +285,20 @@ TrackerROS::publishCertainTracks(void)
       // track_msg.accel.accel.linear.x = (*it).current_state.x[6];
       // track_msg.accel.accel.linear.y = (*it).current_state.x[7];
       // track_msg.accel.accel.linear.z = (*it).current_state.x[8];
+
+      // Fill the PoseWithCovariance covariance (first 3x3 block)
+      for (int i = 0; i < 3; ++i) {
+         for (int j = 0; j < 3; ++j) {
+            track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
+         }
+      }
+
+      // Fill the TwistWithCovariance covariance (last 3x3 block)
+      for (int i = 3; i < 6; ++i) {
+         for (int j = 3; j < 6; ++j) {
+            track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+         }
+      }
       
 
       tracks_msg.tracks.push_back(track_msg);
@@ -335,13 +349,27 @@ TrackerROS::publishAllTracks(void)
 
       /* The following are model-dependent ! */
       
-      // track_msg.twist.twist.linear.x = (*it).current_state.x[3];
-      // track_msg.twist.twist.linear.y = (*it).current_state.x[4];
-      // track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+      track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+      track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+      track_msg.twist.twist.linear.z = (*it).current_state.x[5];
 
       // track_msg.accel.accel.linear.x = (*it).current_state.x[6];
       // track_msg.accel.accel.linear.y = (*it).current_state.x[7];
       // track_msg.accel.accel.linear.z = (*it).current_state.x[8];
+
+       // Fill the PoseWithCovariance covariance (first 3x3 block)
+      for (int i = 0; i < 3; ++i) {
+         for (int j = 0; j < 3; ++j) {
+            track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
+         }
+      }
+
+      // Fill the TwistWithCovariance covariance (last 3x3 block)
+      for (int i = 3; i < 6; ++i) {
+         for (int j = 3; j < 6; ++j) {
+            track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+         }
+      }
       
 
       tracks_msg.tracks.push_back(track_msg);

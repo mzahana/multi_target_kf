@@ -52,7 +52,7 @@ private:
     Eigen::MatrixXd Q_; /** Process covariance matrix */
     Eigen::MatrixXd P_; /* State covariance estimate */
     Eigen::MatrixXd R_; /** Measurements covariance matrix */
-    Eigen::VectorXd x_; /* Current state vector [px, py, pz, theta, gamma, theta_dot, gamma_dot, speed] */
+    Eigen::VectorXd x_; /* Current state vector [px, py, pz, vx, vy, vz] for a constant velocity model*/
     unsigned int NUM_STATES=6; /* State dimension */
     unsigned int NUM_MEASUREMENTS=3; /* Measurements dimension */
     double dt_; /* Prediction sampling time */
