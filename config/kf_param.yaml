@@ -30,7 +30,7 @@
     sigma_v: 1.0
 
     # Provide estimate w.r.t this frame
-    tracking_frame: 'interceptor/local_pose_ENU'
+    tracking_frame: 'interceptor/odom'
     # Topic name of the tag detections
     apriltags_topic: '/tag_detections'
     # Frame name of the detected target
