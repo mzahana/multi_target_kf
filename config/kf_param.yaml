@@ -16,11 +16,11 @@
 
     # Diagonal elements of the process covariance matrix Q, for constant velocity or acceleration models
     # Also used in initializing the upper left (position) part of the P matrix (process covariance) for a track
-    r_diag: [1., 1., 1.]
+    r_diag: [0.01, 0.01, 0.01]
 
     # Standard deviation of the random acceleration variable.
     # Used in computing Q matrix
-    sigma_a: 200.0
+    sigma_a: 500.0
 
     # Standard deviation of position
     # Used in computing initial P (state estimate covariance) matrix
