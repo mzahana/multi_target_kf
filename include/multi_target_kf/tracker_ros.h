@@ -257,6 +257,7 @@ TrackerROS::publishCertainTracks(void)
    // time.nanoseconds(static_cast<int>((timeInSeconds - static_cast<int>(timeInSeconds)) * 1e9));
    pose_array.header.stamp = rclcpp::Time(static_cast<uint64_t>(kf_tracker_->certain_tracks_[0].current_state.time_stamp * 1e9));
    pose_array.header.frame_id = kf_tracker_->tracking_frame_;
+   tracks_msg.header = pose_array.header;
 
    for (auto it = kf_tracker_->certain_tracks_.begin(); it != kf_tracker_->certain_tracks_.end(); it++)
    {
@@ -328,6 +329,7 @@ TrackerROS::publishAllTracks(void)
    
    pose_array.header.stamp = rclcpp::Time(static_cast<uint64_t>(kf_tracker_->tracks_[0].current_state.time_stamp*1e9));
    pose_array.header.frame_id = kf_tracker_->tracking_frame_;
+   tracks_msg.header = pose_array.header;
 
    for (auto it = kf_tracker_->tracks_.begin(); it != kf_tracker_->tracks_.end(); it++)
    {
