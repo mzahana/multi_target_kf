@@ -1,6 +1,3 @@
-# Warning
-This branch is still in progress and NOT functional.
-
 # multi_target_kf
 A ROS 2 package with an implementation of a linear Kalman filter for multi-target state estimation.
 
