@@ -96,6 +96,10 @@ void KFTracker::initTracks(void)
    // if(debug_)
    //    printf("[KFTracker::initTracks] Thred id: %s", std::this_thread::get_id());
 
+   // Clear all tracks
+   tracks_.clear();
+   certain_tracks_.clear();
+
    measurement_set_mtx_.lock();
    auto z = measurement_set_;
    measurement_set_mtx_.unlock();
@@ -378,7 +382,7 @@ void KFTracker::updateTracks(double t)
    if(debug_)
       std::cout << "[updateTracks] assigned_z vector: \n" << assigned_z << "\n";
 
-   /** @todo  If there are reamining measurements, use add them as new tracks. */
+   /** @todo  If there are reamining measurements, add them as new tracks. */
    if(debug_)
       printf("[KFTracker::updateTracks] Adding new tracks using non-assigned measurements \n");
    for( long unsigned int m=0; m<z.size(); m++){
