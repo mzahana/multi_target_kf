@@ -455,17 +455,23 @@ public:
         if (dt <= 0) return Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);;
 
 
+        /*
+        Q_ = sigma_a_ * sigma_a_ * 
+        [ (dt^3 / 3) * I3     (dt^2 / 2) * I3
+        (dt^2 / 2) * I3      dt * I3     ]
+        */
+
         // Initialize
         Q_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
 
         // Construct the upper left block, Qpp
-        Q_.block(0,0,3,3) = dt*dt*dt*dt/4*Eigen::MatrixXd::Identity(3,3);
+        Q_.block(0,0,3,3) = dt*dt*dt/3*Eigen::MatrixXd::Identity(3,3);
         // Construct the upper right block, Qpv
-        Q_.block(0,3,3,3) = dt*dt*dt/2*Eigen::MatrixXd::Identity(3,3);
+        Q_.block(0,3,3,3) = dt*dt/2*Eigen::MatrixXd::Identity(3,3);
         // Construct the lower left block, Qvp
-        Q_.block(3,0,3,3) = dt*dt*dt/2*Eigen::MatrixXd::Identity(3,3);
+        Q_.block(3,0,3,3) = dt*dt/2*Eigen::MatrixXd::Identity(3,3);
         // Construct the lower right block, Qvv
-        Q_.block(3,3,3,3) = dt*dt*Eigen::MatrixXd::Identity(3,3);
+        Q_.block(3,3,3,3) = dt*Eigen::MatrixXd::Identity(3,3);
 
         Q_ = sigma_a_*sigma_a_*Q_;
 
