@@ -83,7 +83,7 @@ private:
    HungarianAlgorithm HungAlgo_; /** Hungarian algorithm object for state-measurement assignment */
 public:
    // ConstantVelModel kf_model_; /* Constant velocity KF model */
-   CoordinatedTurnModel kf_model_; /* Coordinated turn KF model */
+   ConstantAccelerationModel  kf_model_; /* Constant acceleration KF model */
 
    double dt_pred_;
    double last_prediction_t_;

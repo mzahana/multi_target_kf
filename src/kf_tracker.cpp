@@ -74,12 +74,8 @@ bool KFTracker::initKF(void)
 {
    kf_model_.debug(debug_);
    if(!kf_model_.setSigmaA(sigma_a_)) return false;
-   if(!kf_model_.setSigmaOmega(sigma_omega_)) return false;
    if(!kf_model_.setSigmaP(sigma_p_)) return false;
    if(!kf_model_.setSigmaV(sigma_v_)) return false;
-   if(!kf_model_.setSigmaTheta(sigma_theta_)) return false;
-   if(!kf_model_.setSigmaGamma(sigma_gamma_)) return false;
-   // Optionally set sigma_gamma_ if you have a method for it
 
    // Initialize Process covariance matrix Q
    if(!kf_model_.Q(dt_pred_)) return false;
@@ -88,9 +84,7 @@ bool KFTracker::initKF(void)
    if(!kf_model_.R(r_diag_)) return false;
 
    // Initialize state covariance matrix P
-   // if(!kf_model_.P(sigma_p_, sigma_v_)) return false;
-   // Initialize State covariance matrix with additional sigmas // for constanet_vel
-    if(!kf_model_.P(sigma_p_, sigma_v_, sigma_theta_, sigma_gamma_, sigma_omega_)) return false; // for coordinated turn model
+   if(!kf_model_.P(sigma_p_, sigma_v_, sigma_a_)) return false;
 
    // Clear all buffers
    tracks_.clear();
