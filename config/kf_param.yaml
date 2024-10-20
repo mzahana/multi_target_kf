@@ -35,6 +35,16 @@
     # Used in computing initial P (state estimate covariance) matrix
     sigma_v: 2.0
 
+    # Standard deviation of turn rate in rad/sec
+    sigma_omega: 0.1
+    
+    # Standard deviation of heading angle in radians
+    sigma_theta: 0.2
+
+    #Standard deviation of climb angle in radians*
+    sigma_gamma: 0.15
+
+
     # Provide estimate w.r.t this frame
     tracking_frame: 'observer/odom'
     # Topic name of the tag detections

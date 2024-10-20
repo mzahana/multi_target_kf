@@ -56,6 +56,9 @@ use_track_id_(false),
 sigma_a_(10),
 sigma_p_(1),
 sigma_v_(1),
+sigma_theta_(0.2),  // Example value in rad
+sigma_gamma_(0.15), // Example value in rad
+sigma_omega_(0.1), // Example value in rad/sec
 track_mesurement_timeout_(3.0),
 debug_(false)
 {
@@ -67,26 +70,33 @@ KFTracker::~KFTracker()
 {
 }
 
-
-
 bool KFTracker::initKF(void)
 {
-
    kf_model_.debug(debug_);
-   if(!kf_model_.Q(dt_pred_, sigma_a_)) return false; // initialize Process covariance matrix
-   if(!kf_model_.R(r_diag_)) return false; // initialize measurment covariance matrix
-   if(!kf_model_.P(sigma_p_, sigma_v_)) return false; // initialize state covariance matrix
    if(!kf_model_.setSigmaA(sigma_a_)) return false;
+   if(!kf_model_.setSigmaOmega(sigma_omega_)) return false;
    if(!kf_model_.setSigmaP(sigma_p_)) return false;
    if(!kf_model_.setSigmaV(sigma_v_)) return false;
+   if(!kf_model_.setSigmaTheta(sigma_theta_)) return false;
+   if(!kf_model_.setSigmaGamma(sigma_gamma_)) return false;
+   // Optionally set sigma_gamma_ if you have a method for it
+
+   // Initialize Process covariance matrix Q
+   if(!kf_model_.Q(dt_pred_)) return false;
+
+   // Initialize Measurement covariance matrix R
+   if(!kf_model_.R(r_diag_)) return false;
+
+   // Initialize state covariance matrix P
+   // if(!kf_model_.P(sigma_p_, sigma_v_)) return false;
+   // Initialize State covariance matrix with additional sigmas // for constanet_vel
+    if(!kf_model_.P(sigma_p_, sigma_v_, sigma_theta_, sigma_gamma_, sigma_omega_)) return false; // for coordinated turn model
 
    // Clear all buffers
    tracks_.clear();
    certain_tracks_.clear();
 
-
-
-   printf("KF is initialized. Waiting for measurements ...");
+   printf("KF is initialized. Waiting for measurements ...\n");
 
    return true;
 }
@@ -393,7 +403,8 @@ void KFTracker::updateTracks(double t)
       state.x.block(0,0,3,1) = z[m].z;
       state.x.block(3,0,kf_model_.numStates()-3,1) = Eigen::MatrixXd::Zero(kf_model_.numStates()-3,1);
 
-      state.P = kf_model_.Q(dt_pred_);//kf_model_.P(); //kf_model_.Q(dt_pred_);
+      kf_model_.Q(dt_pred_);//kf_model_.P(); //kf_model_.Q(dt_pred_);
+      state.P = kf_model_.Q();
       // state.P.block(0,0,3,3) = kf_model_.R();
       state.time_stamp = z[m].time_stamp;
       

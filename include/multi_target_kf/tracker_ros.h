@@ -135,6 +135,15 @@ TrackerROS::TrackerROS(/* args */): Node("tracker_ros")
       RCLCPP_INFO(this->get_logger(),"sigma_a: %f, sigma_p: %f, sigma_v: %f", kf_tracker_->sigma_a_, kf_tracker_->sigma_p_, kf_tracker_->sigma_v_);
    }
 
+   this->declare_parameter("sigma_omega", 0.1);
+   kf_tracker_->sigma_omega_ = this->get_parameter("sigma_omega").as_double();
+
+   this->declare_parameter("sigma_theta", 0.2);
+   kf_tracker_->sigma_theta_ = this->get_parameter("sigma_theta").as_double();
+
+   this->declare_parameter("sigma_gamma", 0.15);
+   kf_tracker_->sigma_gamma_ = this->get_parameter("sigma_gamma").as_double();
+
    std::vector<double> q_diag {0.1, 0.1, 0.1, 0.1, 0.1, 0.1 ,0.1 , 0.1, 0.1};
    this->declare_parameter("q_diag", q_diag);
    kf_tracker_->q_diag_ = this->get_parameter("q_diag").get_parameter_value().get<std::vector<double>>();
@@ -202,13 +211,16 @@ TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
       return;
    }
 
-   auto now = this->now().seconds();
+   // auto now = this->now().seconds();
    kf_tracker_->measurement_set_mtx_.lock();
    for (auto it = msg.poses.begin(); it != msg.poses.end(); it++)
    {
       sensor_measurement z;
       
-      z.time_stamp = now; //static_cast<double>(msg.header.stamp.nanosec/1e9) ;
+      // Use the time stamp from the message header
+      double msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+
+      z.time_stamp = msg_time; //now; //static_cast<double>(msg.header.stamp.nanosec/1e9) ;
       if(kf_tracker_->debug_)
          RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: Measurement time = %f.", z.time_stamp);
       z.id = 0;
@@ -279,27 +291,48 @@ TrackerROS::publishCertainTracks(void)
 
       /* The following are model-dependent ! */
       
-      track_msg.twist.twist.linear.x = (*it).current_state.x[3];
-      track_msg.twist.twist.linear.y = (*it).current_state.x[4];
-      track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+      // for the constatn velocity model
+      // track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+      // track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+      // track_msg.twist.twist.linear.z = (*it).current_state.x[5];
 
+      // for constant acceleration model
       // track_msg.accel.accel.linear.x = (*it).current_state.x[6];
       // track_msg.accel.accel.linear.y = (*it).current_state.x[7];
       // track_msg.accel.accel.linear.z = (*it).current_state.x[8];
 
-      // Fill the PoseWithCovariance covariance (first 3x3 block)
+      // for cooridnated turn model
+
+      // Extract state variables
+      double v = (*it).current_state.x[3];
+      double theta = (*it).current_state.x[4];
+      double gamma = (*it).current_state.x[5];
+
+      // Compute velocity components
+      double vx = v * cos(theta) * cos(gamma);
+      double vy = v * sin(theta) * cos(gamma);
+      double vz = v * sin(gamma);
+
+      // Assign to twist message
+      track_msg.twist.twist.linear.x = vx;
+      track_msg.twist.twist.linear.y = vy;
+      track_msg.twist.twist.linear.z = vz;
+
+      // Optionally, assign angular velocities
+      track_msg.twist.twist.angular.z = (*it).current_state.x[6]; // Turn rate omega
+
+      // Fill the PoseWithCovariance covariance (position covariance)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
          }
       }
 
-      // Fill the TwistWithCovariance covariance (last 3x3 block)
-      for (int i = 3; i < 6; ++i) {
-         for (int j = 3; j < 6; ++j) {
-            track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
-         }
-      }
+      // Since computing the covariance of the velocities is complex, you may set default values
+      // Alternatively, set diagonal elements based on the variances of v, theta, gamma
+      track_msg.twist.covariance[0] = 0.0; (*it).current_state.P(3,3); // Variance of v
+      track_msg.twist.covariance[7] = 0.0; (*it).current_state.P(4,4); // Variance of theta
+      track_msg.twist.covariance[14] = 0.0; (*it).current_state.P(5,5); // Variance of gamma
       
 
       tracks_msg.tracks.push_back(track_msg);
@@ -351,27 +384,47 @@ TrackerROS::publishAllTracks(void)
 
       /* The following are model-dependent ! */
       
-      track_msg.twist.twist.linear.x = (*it).current_state.x[3];
-      track_msg.twist.twist.linear.y = (*it).current_state.x[4];
-      track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+      // For constatnt vel model
+      // track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+      // track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+      // track_msg.twist.twist.linear.z = (*it).current_state.x[5];
 
+      // For constant accel model
       // track_msg.accel.accel.linear.x = (*it).current_state.x[6];
       // track_msg.accel.accel.linear.y = (*it).current_state.x[7];
       // track_msg.accel.accel.linear.z = (*it).current_state.x[8];
 
-       // Fill the PoseWithCovariance covariance (first 3x3 block)
+      // For cooridnated turn model
+      // Extract state variables
+      double v = (*it).current_state.x[3];
+      double theta = (*it).current_state.x[4];
+      double gamma = (*it).current_state.x[5];
+
+      // Compute velocity components
+      double vx = v * cos(theta) * cos(gamma);
+      double vy = v * sin(theta) * cos(gamma);
+      double vz = v * sin(gamma);
+
+      // Assign to twist message
+      track_msg.twist.twist.linear.x = vx;
+      track_msg.twist.twist.linear.y = vy;
+      track_msg.twist.twist.linear.z = vz;
+
+      // Optionally, assign angular velocities
+      track_msg.twist.twist.angular.z = (*it).current_state.x[6]; // Turn rate omega
+
+      // Fill the PoseWithCovariance covariance (position covariance)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
          }
       }
 
-      // Fill the TwistWithCovariance covariance (last 3x3 block)
-      for (int i = 3; i < 6; ++i) {
-         for (int j = 3; j < 6; ++j) {
-            track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
-         }
-      }
+      // Since computing the covariance of the velocities is complex, you may set default values
+      // Alternatively, set diagonal elements based on the variances of v, theta, gamma
+      track_msg.twist.covariance[0] = 0.0; (*it).current_state.P(3,3); // Variance of v
+      track_msg.twist.covariance[7] = 0.0; (*it).current_state.P(4,4); // Variance of theta
+      track_msg.twist.covariance[14] = 0.0; (*it).current_state.P(5,5); // Variance of gamma
       
 
       tracks_msg.tracks.push_back(track_msg);

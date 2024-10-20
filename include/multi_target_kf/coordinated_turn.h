@@ -58,9 +58,11 @@ private:
     bool debug_;
 
     double sigma_a_; /* Standard deviation of acceleration noise */
-    double sigma_omega_; /* Standard deviation of turn rate noise */
     double sigma_v_; /* Standard deviation of velocity noise */
     double sigma_p_; /* Standard deviation of position noise */
+    double sigma_theta_; /* Standard deviation of heading angle in radians */
+    double sigma_gamma_; /* Standard deviation of climb angle in radians*/
+    double sigma_omega_; /* Standard deviation of turn rate noise */
 
 public:
     /* Constructor */
@@ -174,6 +176,34 @@ public:
 
         if (debug())
             std::cout << " sigma_omega: " << sigma_omega_ << "\n";
+        return true;
+    }
+
+    bool setSigmaTheta(double sigma_theta)
+    {
+        if (sigma_theta <= 0)
+        {
+            printf("ERROR [CoordinatedTurnModel::setSigmaTheta] sigma_theta <=0 \n");
+            return false;
+        }
+        sigma_theta_ = sigma_theta;
+
+        if (debug())
+            std::cout << " sigma_theta: " << sigma_theta_ << "\n";
+        return true;
+    }
+
+    bool setSigmaGamma(double sigma_gamma)
+    {
+        if (sigma_gamma <= 0)
+        {
+            printf("ERROR [CoordinatedTurnModel::setSigmaGamma] sigma_gamma <=0 \n");
+            return false;
+        }
+        sigma_gamma_ = sigma_gamma;
+
+        if (debug())
+            std::cout << " sigma_gamma: " << sigma_gamma_ << "\n";
         return true;
     }
 
@@ -442,16 +472,20 @@ public:
         Q_ = Eigen::MatrixXd::Zero(NUM_STATES, NUM_STATES);
 
         // Process noise covariance matrix
-        // Assuming process noise in speed (v), heading (theta), and turn rate (omega)
-
-        Q_(3, 3) = sigma_a_ * sigma_a_ * dt; // Speed noise
-        Q_(4, 4) = sigma_omega_ * sigma_omega_ * dt; // Heading noise
+        Q_(3, 3) = sigma_a_ * sigma_a_ * dt;       // Speed noise
+        Q_(4, 4) = sigma_omega_ * sigma_omega_ * dt; // Heading angle noise
+        Q_(5, 5) = sigma_gamma_ * sigma_gamma_ * dt; // Climb angle noise
         Q_(6, 6) = sigma_omega_ * sigma_omega_ * dt; // Turn rate noise
 
-        // Optionally, you can add small noise to other states if necessary
+        // Consider adding small process noise to position states if necessary
+        double small_noise = 0.1;
+        Q_(0, 0) = small_noise * dt;
+        Q_(1, 1) = small_noise * dt;
+        Q_(2, 2) = small_noise * dt;
 
         return true;
     }
+
 
     bool Q(double dt, double sigma_a, double sigma_omega)
     {
@@ -570,6 +604,32 @@ public:
         return true;
     }
 
+    bool P(double sigma_p, double sigma_v, double sigma_theta, double sigma_gamma, double sigma_omega)
+    {
+        if (sigma_p <= 0 || sigma_v <= 0 || sigma_theta <= 0 || sigma_gamma <= 0 || sigma_omega <= 0)
+        {
+            printf("ERROR [CoordinatedTurnModel::P] One or more sigma values are <= 0 \n");
+            return false;
+        }
+
+        if (debug())
+        {
+            printf("[CoordinatedTurnModel::P] Setting P from standard deviations \n");
+        }
+        P_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
+        P_.block(0, 0, 3, 3) = sigma_p * sigma_p * Eigen::MatrixXd::Identity(3, 3); // Position covariance
+        P_(3, 3) = sigma_v * sigma_v;          // Speed covariance
+        P_(4, 4) = sigma_theta * sigma_theta;  // Heading angle covariance
+        P_(5, 5) = sigma_gamma * sigma_gamma;  // Climb angle covariance
+        P_(6, 6) = sigma_omega * sigma_omega;  // Turn rate covariance
+
+        if (debug())
+            std::cout << "P: \n" << P_ << "\n";
+
+        return true;
+    }
+
+
     bool P(Eigen::MatrixXd M)
     {
         if (debug_)
@@ -588,6 +648,7 @@ public:
         else
             return false;
     }
+    
 
     Eigen::VectorXd getx(void)
     {
@@ -724,7 +785,7 @@ public:
         state.x(2) = z.z(2); // z position
 
         // Initialize other states as needed
-        state.x(3) = 1.0; // Initial speed estimate
+        state.x(3) = 0.1; // Initial speed estimate
         state.x(4) = 0.0; // Initial heading angle
         state.x(5) = 0.0; // Initial climb angle
         state.x(6) = 0.0; // Initial turn rate

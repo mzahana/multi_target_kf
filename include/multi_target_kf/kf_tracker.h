@@ -53,7 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 enum MODEL : unsigned char
 {
-   CONSTANT_ACCEL = 0, DUBINS = 1
+   CONSTANT_ACCEL = 0, COORDINATED_TURN = 1
 };
 
 /**
@@ -69,8 +69,6 @@ struct kf_track
    double last_measurement_time;
 };
 
-const unsigned char kMODEL = MODEL::DUBINS;
-
 //* KFTracker class
 /**
  * Implements a Kalman-filter-based object tracker based on constant velocity model
@@ -84,7 +82,8 @@ private:
 
    HungarianAlgorithm HungAlgo_; /** Hungarian algorithm object for state-measurement assignment */
 public:
-   ConstantVelModel kf_model_; /* Constant velocity KF model */
+   // ConstantVelModel kf_model_; /* Constant velocity KF model */
+   CoordinatedTurnModel kf_model_; /* Coordinated turn KF model */
 
    double dt_pred_;
    double last_prediction_t_;
@@ -118,6 +117,10 @@ public:
    double sigma_a_; /* Standard deviation of acceleration noise */
    double sigma_p_; /* Standard deviataion of the position. Used in the initial  state covariance matrix P*/
    double sigma_v_; /* Standard deviataion of the velocity. Used in the initial  state covariance matrix P*/
+   double sigma_theta_; /* Standard deviation of heading angle in radians */
+   double sigma_gamma_; /* Standard deviation of climb angle in radians*/
+   double sigma_omega_; /* Standard deviation of turn rate in rad/sec */
+
 
    std::mutex measurement_set_mtx_; /* mutex to guard measurement_set_  from interferring calls */
 
