@@ -764,30 +764,25 @@ public:
     * @param z sensor_measurement measurement (time, state, covariance)
     * @return double logLikelihood
     */
-    double
-    logLikelihood(kf_state xx, sensor_measurement z){
-        // if(debug_){
-        //     printf("[ConstantAccelModel::logLikelihood] Calculating logLikelihood");
-        //     std::cout << "x: \n" << xx.x << "\n";
-        //     std::cout << "z: \n" << z.z << "\n";
-        // }
+    double logLikelihood(kf_state xx, sensor_measurement z)
+    {
+        Eigen::VectorXd y_hat = z.z - h(xx.x); // Innovation
 
-        Eigen::VectorXd y_hat; //z.z - h(xx.x); // innovation
-        y_hat = z.z - h(xx.x); // innovation
-        // if(debug_) std::cout << "y_hat: \n" << y_hat << "\n";
+        Eigen::MatrixXd S = R_ + H() * xx.P * H().transpose(); // Innovation covariance
 
-        Eigen::MatrixXd S;
-        S = R_ + H()*xx.P*H().transpose(); // innovation covariance
-        // if(debug_) std::cout << "S: \n" << S << "\n";
+        double det_S = S.determinant();
+        if (det_S <= 0)
+        {
+            printf("ERROR [ConstantAccelerationModel::logLikelihood] Non-positive definite S matrix. det(S) = %f \n", det_S);
+            return -std::numeric_limits<double>::infinity();
+        }
 
-        auto S_inv = S.inverse();
-        // if (debug_) std::cout << "S_inv \n" << S_inv << "\n";
-        auto tmp = y_hat.transpose()*S_inv*y_hat;
+        double tmp = y_hat.transpose() * S.inverse() * y_hat;
 
-        double LL = -0.5 * (tmp + log( std::fabs(S.determinant()) ) + 3.0*log(2*M_PI)); // log-likelihood
+        double LL = -0.5 * (tmp + log(det_S) + NUM_MEASUREMENTS * log(2 * M_PI)); // Log-likelihood
 
-        if(debug_)
-            printf("[ConstVel::logLikelihood] Done computing logLikelihood. L= %f \n", LL);
+        if (debug_)
+            printf("[ConstantAccelerationModel::logLikelihood] Done computing logLikelihood. L= %f \n", LL);
 
         return LL;
     }
@@ -805,7 +800,7 @@ public:
         state.x(1) = z.z(1);
         state.x(2) = z.z(2);
 
-        state.P = Q_;
+        state.P = P_;
 
         return state;
     }

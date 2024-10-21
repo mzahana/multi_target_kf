@@ -646,7 +646,7 @@ public:
         double det_S = S.determinant();
         if (det_S <= 0)
         {
-            printf("ERROR [ConstantAccelerationModel::logLikelihood] Non-positive definite S matrix \n");
+            printf("ERROR [ConstantAccelerationModel::logLikelihood] Non-positive definite S matrix. det(S) = %f \n", det_S);
             return -std::numeric_limits<double>::infinity();
         }
 
