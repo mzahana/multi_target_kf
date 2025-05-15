@@ -1,4 +1,4 @@
-# launch/kf_const_vel.launch.py
+# launch/kf_const_accel.launch.py
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -13,11 +13,11 @@ def generate_launch_description():
     namespace = LaunchConfiguration('kf_ns')
     model_type = LaunchConfiguration('model_type')
 
-    # Default config for constant velocity model
+    # Default config for constant acceleration model
     config = os.path.join(
         get_package_share_directory('multi_target_kf'),
         'config',
-        'kf_param_vel.yaml'
+        'kf_param_accel.yaml'
     )
     
     kf_yaml_launch_arg = DeclareLaunchArgument(
@@ -40,7 +40,7 @@ def generate_launch_description():
     
     model_type_launch_arg = DeclareLaunchArgument(
         'model_type',
-        default_value='0',  # 0 = CONSTANT_VELOCITY
+        default_value='1',  # 1 = CONSTANT_ACCELERATION
         description='Motion model type: 0=CONSTANT_VELOCITY, 1=CONSTANT_ACCELERATION'
     )
 

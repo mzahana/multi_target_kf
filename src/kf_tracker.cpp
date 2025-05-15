@@ -30,72 +30,209 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* TODO:
-5. Implement a simpler Q_ matrix and R_ as per Saska's paper
-
-6. Use seperate standard deviation parameters for position & velocity in Q_ :  q_pos_std_ , q_vel_std_
-*/
-
 #include "multi_target_kf/kf_tracker.h"
 
-KFTracker::KFTracker():
-dt_pred_(0.05),// 20Hz
-last_prediction_t_(0.0),
-last_measurement_t_(0.0),
-V_max_(20.0),
-V_certain_(1.0),
-N_meas_(20),
-l_threshold_(-2.0),
-dist_threshold_(2.0),
-is_state_initialzed_(false),
-state_buffer_size_(40),
-tracking_frame_("map"),
-do_update_step_(true),
-measurement_off_time_(2.0),
-use_track_id_(false),
-sigma_a_(10),
-sigma_p_(1),
-sigma_v_(1),
-track_mesurement_timeout_(3.0),
-debug_(false)
+KFTracker::KFTracker(const TrackerConfig& config) :
+   config_(config),
+   kf_model_(nullptr),
+   last_prediction_t_(0.0),
+   last_measurement_t_(0.0),
+   is_state_initialzed_(false)
 {
+   // Update public fields from the configuration for backward compatibility
+   syncFieldsFromConfig();
    
+   // Create the motion model
+   kf_model_ = ModelFactory::createModel(config_.model_type);
+   if (!kf_model_ && debug_) {
+      printf("ERROR: Failed to create motion model of type %d\n", static_cast<int>(config_.model_type));
+   }
+}
+
+KFTracker::KFTracker(ModelType model_type) :
+   KFTracker(TrackerConfig())
+{
+   // Override the model type in the configuration
+   config_.model_type = model_type;
    
+   // Clean up the default model
+   if (kf_model_) {
+      delete kf_model_;
+      kf_model_ = nullptr;
+   }
+   
+   // Create the specified model
+   kf_model_ = ModelFactory::createModel(model_type);
+   if (!kf_model_ && debug_) {
+      printf("ERROR: Failed to create motion model of type %d\n", static_cast<int>(model_type));
+   }
 }
 
 KFTracker::~KFTracker()
 {
+   // Clean up the model
+   if (kf_model_) {
+      delete kf_model_;
+      kf_model_ = nullptr;
+   }
 }
 
+void KFTracker::syncFieldsFromConfig()
+{
+   dt_pred_ = config_.dt_pred;
+   V_max_ = config_.V_max;
+   V_certain_ = config_.V_certain;
+   N_meas_ = config_.N_meas;
+   l_threshold_ = config_.l_threshold;
+   dist_threshold_ = config_.dist_threshold;
+   state_buffer_size_ = config_.state_buffer_size;
+   tracking_frame_ = config_.tracking_frame;
+   do_update_step_ = config_.do_update_step;
+   measurement_off_time_ = config_.measurement_off_time;
+   use_track_id_ = config_.use_track_id;
+   track_mesurement_timeout_ = config_.track_measurement_timeout;
+   debug_ = config_.debug;
+   sigma_a_ = config_.sigma_a;
+   sigma_p_ = config_.sigma_p;
+   sigma_v_ = config_.sigma_v;
+   sigma_j_ = config_.sigma_j;  // NEW: Initialize sigma_j_ from config
+   q_diag_ = config_.q_diag;
+   r_diag_ = config_.r_diag;
+}
 
+void KFTracker::syncConfigFromFields()
+{
+   config_.dt_pred = dt_pred_;
+   config_.V_max = V_max_;
+   config_.V_certain = V_certain_;
+   config_.N_meas = N_meas_;
+   config_.l_threshold = l_threshold_;
+   config_.dist_threshold = dist_threshold_;
+   config_.state_buffer_size = state_buffer_size_;
+   config_.tracking_frame = tracking_frame_;
+   config_.do_update_step = do_update_step_;
+   config_.measurement_off_time = measurement_off_time_;
+   config_.use_track_id = use_track_id_;
+   config_.track_measurement_timeout = track_mesurement_timeout_;
+   config_.debug = debug_;
+   config_.sigma_a = sigma_a_;
+   config_.sigma_p = sigma_p_;
+   config_.sigma_v = sigma_v_;
+   config_.sigma_j = sigma_j_;
+   config_.q_diag = q_diag_;
+   config_.r_diag = r_diag_;
+}
+
+bool KFTracker::setConfig(const TrackerConfig& config)
+{
+   // Make a copy of the old configuration in case we need to rollback
+   TrackerConfig old_config = config_;
+   
+   // Update the configuration
+   config_ = config;
+   
+   // Update the public fields for backward compatibility
+   syncFieldsFromConfig();
+   
+   // If the model type has changed, we need to create a new model
+   if (kf_model_ && config_.model_type != old_config.model_type) {
+      // Try to set the new model
+      if (!setModel(config_.model_type)) {
+         // If setting the new model fails, rollback to the old configuration
+         config_ = old_config;
+         syncFieldsFromConfig();
+         return false;
+      }
+   }
+   
+   // Reinitialize the KF with the new parameters
+   if (!initKF()) {
+      // If initialization fails, rollback to the old configuration
+      config_ = old_config;
+      syncFieldsFromConfig();
+      return false;
+   }
+   
+   return true;
+}
+
+bool KFTracker::setModel(ModelType model_type)
+{
+   // Update the configuration
+   config_.model_type = model_type;
+   
+   // Clean up the old model
+   if (kf_model_) {
+      delete kf_model_;
+      kf_model_ = nullptr;
+   }
+   
+   // Create the new model
+   kf_model_ = ModelFactory::createModel(model_type);
+   if (!kf_model_) {
+      if (debug_) {
+         printf("ERROR: Failed to create motion model of type %d\n", static_cast<int>(model_type));
+      }
+      return false;
+   }
+   
+   // Initialize the new model
+   return initKF();
+}
 
 bool KFTracker::initKF(void)
 {
+   if (!kf_model_) {
+      if (debug_) {
+         printf("ERROR: No motion model available for initialization\n");
+      }
+      return false;
+   }
 
-   kf_model_.debug(debug_);
-   if(!kf_model_.Q(dt_pred_, sigma_a_)) return false; // initialize Process covariance matrix
-   if(!kf_model_.R(r_diag_)) return false; // initialize measurment covariance matrix
-   if(!kf_model_.P(sigma_p_, sigma_v_)) return false; // initialize state covariance matrix
-   if(!kf_model_.setSigmaA(sigma_a_)) return false;
-   if(!kf_model_.setSigmaP(sigma_p_)) return false;
-   if(!kf_model_.setSigmaV(sigma_v_)) return false;
-
+   kf_model_->debug(debug_);
+   
+   // Model-specific initialization
+   if (config_.model_type == CONSTANT_VELOCITY) {
+      // Cast to ConstantVelModel for model-specific initialization
+      ConstantVelModel* model = static_cast<ConstantVelModel*>(kf_model_);
+      if (!model->Q(dt_pred_, sigma_a_)) return false;
+      if (!model->setSigmaA(sigma_a_)) return false;
+      if (!model->setSigmaP(sigma_p_)) return false;
+      if (!model->setSigmaV(sigma_v_)) return false;
+   }
+   else if (config_.model_type == CONSTANT_ACCELERATION) {
+      // Cast to ConstantAccelModel for model-specific initialization
+      ConstantAccelModel* model = static_cast<ConstantAccelModel*>(kf_model_);
+      if (!model->Q(dt_pred_, sigma_j_)) return false; // Now using sigma_j_ instead of sigma_a_
+      if (!model->setSigmaJ(sigma_j_)) return false;   // Now using sigma_j_ instead of sigma_a_
+      if (!model->setSigmaP(sigma_p_)) return false;
+      if (!model->setSigmaV(sigma_v_)) return false;
+      if (!model->setSigmaA(1.0)) return false;       // Default acceleration std
+      
+      // Setup initial P matrix
+      if (!model->P(sigma_p_, sigma_v_, 1.0)) return false;
+   }
+   // Add more model-specific initializations here for future models
+   
+   // Common initialization for all models
+   if (!kf_model_->R(r_diag_)) return false;
+   
    // Clear all buffers
    tracks_.clear();
    certain_tracks_.clear();
-
-
-
-   printf("KF is initialized. Waiting for measurements ...");
-
+   
+   if (debug_) {
+      printf("KF is initialized with model type %s. Waiting for measurements...\n", 
+             ModelFactory::getModelName(config_.model_type));
+   } else {
+      printf("KF is initialized. Waiting for measurements...");
+   }
+   
    return true;
 }
 
 void KFTracker::initTracks(void)
 {
-   // if(debug_)
-   //    printf("[KFTracker::initTracks] Thred id: %s", std::this_thread::get_id());
-
    // Clear all tracks
    tracks_.clear();
    certain_tracks_.clear();
@@ -128,16 +265,9 @@ void KFTracker::initTracks(void)
 
    for (long unsigned int i=0; i < z.size(); i++)
    {
-      kf_state state;
-      state.time_stamp = z[i].time_stamp;
-      state.x.resize(kf_model_.numStates(),1);
-      state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
-      state.x.block(0,0,3,1) = z[i].z; // 3D position
-      state.x.block(3,0,kf_model_.numStates()-3,1) = 0.001*Eigen::MatrixXd::Ones(kf_model_.numStates()-3,1);
+      // Use the motion model interface to initialize state from measurement
+      kf_state state = kf_model_->initStateFromMeasurements(z[i]);
       
-      state.P = kf_model_.P();//Q(dt_pred_);
-      // state.P.block(0,0,3,3) = dt_pred_*dt_pred_ * kf_model_.R();
-
       kf_track track;
       track.n = 1; // Number of measurements = 1 since it's the 1st one
       track.current_state = state;
@@ -151,7 +281,6 @@ void KFTracker::initTracks(void)
    }
 
    return;
-
 }
 
 void KFTracker::predictTracks(void)
@@ -166,7 +295,8 @@ void KFTracker::predictTracks(void)
       if(debug_)
          printf("[KFTracker::predictTracks] Predicting track %d \n", i);
 
-      (*it).current_state = kf_model_.predictX((*it).current_state, dt_pred_);
+      // Use the motion model interface for prediction
+      (*it).current_state = kf_model_->predictX((*it).current_state, dt_pred_);
 
       // update buffer
       (*it).buffer.push_back((*it).current_state);
@@ -195,7 +325,8 @@ void KFTracker::predictTracks(double dt)
       if(debug_)
          printf("[KFTracker::predictTracks] Predicting track %d \n", i);
 
-      (*it).current_state = kf_model_.predictX((*it).current_state, dt);
+      // Use the motion model interface for prediction
+      (*it).current_state = kf_model_->predictX((*it).current_state, dt);
 
       // update buffer
       (*it).buffer.push_back((*it).current_state);
@@ -211,14 +342,10 @@ void KFTracker::predictTracks(double dt)
    
    return;
 }
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
 void KFTracker::updateTracks(double t)
 {
-   // if(debug_)
-   //    printf("[KFTracker::updateTracks] Thread id: %s", std::this_thread::get_id());
-
    // Sanity checks
-
    if(tracks_.empty())
       return;
 
@@ -233,9 +360,9 @@ void KFTracker::updateTracks(double t)
       return;
    }
 
-    // check if we got new measurement
-    /** @warning Currently, it's assumed that all measurement in the buffer measurement_set_ have the same time stamp */
-    auto z_t = z[0].time_stamp;
+   // check if we got new measurement
+   /** @warning Currently, it's assumed that all measurement in the buffer measurement_set_ have the same time stamp */
+   auto z_t = z[0].time_stamp;
    if (z_t <= last_measurement_t_)
    {
       if(debug_)
@@ -250,7 +377,6 @@ void KFTracker::updateTracks(double t)
    Eigen::MatrixXd LL_mat(tracks_.size(), z.size());
    for(auto it_t=tracks_.begin(); it_t != tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin(); // track index
-      /** @todo Should we predict the state to the current measurement time??? */
 
       // First, check if there is close state in time
       bool found_closest_state = false;
@@ -272,8 +398,8 @@ void KFTracker::updateTracks(double t)
 
       for(auto it_z=z.begin(); it_z != z.end(); it_z++){
          int z_idx = it_z - z.begin(); // measurement index
-         /** @todo check for INF values */ 
-         double LL = kf_model_.logLikelihood((*it_t).current_state, (*it_z));
+         // Use the motion model interface to compute log likelihood
+         double LL = kf_model_->logLikelihood((*it_t).current_state, (*it_z));
          if ( (LL >= l_threshold_) && found_closest_state) LL_mat(tr_idx, z_idx) = LL;
          else  LL_mat(tr_idx, z_idx) = -9999.0;
 
@@ -292,7 +418,7 @@ void KFTracker::updateTracks(double t)
     * 1. Hungarian algorithm minimizes cost, so first negate the logliklihood matrix
     * 2. Hungarian algorithm requires cost matrix with non negative elements only.
     *    So, subtract the minimum element from the matrix resulting from step 1
-   */
+    */
    if (true){ //set to true if using loglikelihood instead of distance
       if(debug_)
          printf("[KFTracker::updateTracks] Preparing cost matrix for the Hungarian algorithm... \n");
@@ -302,26 +428,26 @@ void KFTracker::updateTracks(double t)
       LL_mat = LL_mat - ( LL_mat.minCoeff()*Eigen::MatrixXd::Ones(LL_mat.rows(), LL_mat.cols()) );
    }
   
-  std::vector< std::vector<double> > costMat;
-  std::vector<double> row;
-  for (int i=0; i< LL_mat.rows(); i++){
-     row.clear();
-     for(int j=0; j<LL_mat.cols(); j++){
-        row.push_back(LL_mat(i,j));
-     }
-     costMat.push_back(row);
-  }
-  if(debug_){
-     printf("[KFTracker::updateTracks] Cost matrix is prepared.\n");
-     std::cout << "costMat: \n";
+   std::vector< std::vector<double> > costMat;
+   std::vector<double> row;
+   for (int i=0; i< LL_mat.rows(); i++){
+      row.clear();
+      for(int j=0; j<LL_mat.cols(); j++){
+         row.push_back(LL_mat(i,j));
+      }
+      costMat.push_back(row);
+   }
+   if(debug_){
+      printf("[KFTracker::updateTracks] Cost matrix is prepared.\n");
+      std::cout << "costMat: \n";
       for(long unsigned int ii=0; ii<costMat.size(); ii++){
          for(long unsigned int jj=0; jj<costMat[ii].size(); jj++)
             std::cout << costMat[ii][jj] << " "  ;
       }
       std::cout << "\n";
-  }
+   }
 
-   /** @brief  apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
+   /** @brief apply Hungarian algorithm on cost_mat, to get measurement-state assignment */
    if(debug_)
       printf("[KFTracker::updateTracks] Executing Hungarian algorithm... \n");
    
@@ -338,32 +464,29 @@ void KFTracker::updateTracks(double t)
 
    // vector to mark the assigned measurements. 1 if assigned, 0 otherwise
    // This will be used to add the non-assigned measurement(s) as new track(s)
-   // size of z
    Eigen::VectorXi assigned_z(z.size()); assigned_z = Eigen::VectorXi::Zero(z.size());
 
    /** @brief apply KF update step for each track, if it's assigned a measurement, and then predict to the current time step
     * If a track is not assigned a measurement, just predict it to the current time step
     * Remove measurements that are already assigned to tracks, after they are used to update their assigned tracks.
-   */
-
+    */
    if(debug_)
       printf("[KFTracker::updateTracks] Updating tracks using assigned measurements \n");
    for(auto it_t=tracks_.begin(); it_t!=tracks_.end(); it_t++){
       int tr_idx = it_t - tracks_.begin();
-
       
       // Apply state correction
       if (assignment[tr_idx] > -1){
-
          // we have to double check the assigned measurement is not bad!
          // because hungarian algorithm will just do matching without respecting any threshold
-         double LL = kf_model_.logLikelihood((*it_t).current_state, z[assignment[tr_idx]]);
+         // Use the motion model interface to compute log likelihood
+         double LL = kf_model_->logLikelihood((*it_t).current_state, z[assignment[tr_idx]]);
          if(LL >= l_threshold_){
             assigned_z(assignment[tr_idx]) = 1;
-            // correct/update track
-            double dt2 = z[assignment[tr_idx]].time_stamp -  (*it_t).last_measurement_time;
+            // correct/update track using the motion model interface
+            double dt2 = z[assignment[tr_idx]].time_stamp - (*it_t).last_measurement_time;
             dt2 *= dt2; // square it
-            (*it_t).current_state = kf_model_.updateX(z[assignment[tr_idx]], (*it_t).current_state);
+            (*it_t).current_state = kf_model_->updateX(z[assignment[tr_idx]], (*it_t).current_state);
             (*it_t).n += 1;
             (*it_t).last_measurement_time = z[assignment[tr_idx]].time_stamp; 
          }
@@ -371,45 +494,38 @@ void KFTracker::updateTracks(double t)
 
       // predict track to the current time stamp, if possible
       double dt = t - (*it_t).current_state.time_stamp;
-      (*it_t).current_state = kf_model_.predictX((*it_t).current_state, dt);
+      // Use the motion model interface for prediction
+      (*it_t).current_state = kf_model_->predictX((*it_t).current_state, dt);
       (*it_t).buffer.push_back((*it_t).current_state);
       if((*it_t).buffer.size() > state_buffer_size_)
          (*it_t).buffer.erase((*it_t).buffer.begin());
-
-
    }// Done updating tracks
 
    if(debug_)
       std::cout << "[updateTracks] assigned_z vector: \n" << assigned_z << "\n";
 
-   /** @todo  If there are reamining measurements, add them as new tracks. */
+   /** @brief If there are remaining measurements, add them as new tracks. */
    if(debug_)
       printf("[KFTracker::updateTracks] Adding new tracks using non-assigned measurements \n");
-   for( long unsigned int m=0; m<z.size(); m++){
+   for(long unsigned int m=0; m<z.size(); m++){
       if(assigned_z(m) > 0) continue; // this measurement is assigned, so skip it
-      kf_state state;
-      state.x.resize(kf_model_.numStates(),1);
-      state.x = Eigen::MatrixXd::Zero(kf_model_.numStates(),1);
-      state.x.block(0,0,3,1) = z[m].z;
-      state.x.block(3,0,kf_model_.numStates()-3,1) = Eigen::MatrixXd::Zero(kf_model_.numStates()-3,1);
-
-      state.P = kf_model_.Q(dt_pred_);//kf_model_.P(); //kf_model_.Q(dt_pred_);
-      // state.P.block(0,0,3,3) = kf_model_.R();
-      state.time_stamp = z[m].time_stamp;
+      
+      // Initialize a new state from the measurement using the motion model interface
+      kf_state state = kf_model_->initStateFromMeasurements(z[m]);
+      state.P = kf_model_->Q(dt_pred_); // Use process noise for initial state uncertainty
       
       kf_track new_track;
       new_track.id = z[m].id;
       new_track.current_state = state;
       new_track.n = 1;
       new_track.last_measurement_time = state.time_stamp;
-      // new_track.buffer.push_back(state);
+      new_track.buffer.push_back(state);
 
       tracks_.push_back(new_track);
       if(debug_){
-         printf( "WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %lu ******* \n ", m);
+         printf("WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %lu ******* \n ", m);
       }      
    }
-
 }// updateTracks DONE 
 
 void KFTracker::removeUncertainTracks(){
@@ -420,17 +536,17 @@ void KFTracker::removeUncertainTracks(){
    {
       int i = it - tracks_.begin();
       // Calculate position uncertainty of this track
-      auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
+      auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matrix
       auto V = sqrt(std::fabs(P_p.determinant()));
       if(debug_)
-         printf( "WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f . number of measurements %d. \n", i, V, (*it).n);      
+         printf("WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f. number of measurements %d. \n", i, V, (*it).n);      
 
       // Remove tracks with high uncertainty
-      if(V > V_max_ || isinf( (*it).current_state.x.norm() ))
+      if(V > V_max_ || isinf((*it).current_state.x.norm()))
       {
          if(debug_){
-            printf( "WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f is high (> %f). Removing it.\n", i, V, V_max_);
-            printf( "WARN [KFTracker::removeUncertainTracks] Track %d norm(state) = %f", i, (*it).current_state.x.norm());
+            printf("WARN [KFTracker::removeUncertainTracks] Track %d uncertainty = %f is high (> %f). Removing it.\n", i, V, V_max_);
+            printf("WARN [KFTracker::removeUncertainTracks] Track %d norm(state) = %f\n", i, (*it).current_state.x.norm());
          }
          
          tracks_.erase(it--);
@@ -440,13 +556,16 @@ void KFTracker::removeUncertainTracks(){
       // Remove track if it has not received measurements for long time
       if(abs((*it).current_state.time_stamp - (*it).last_measurement_time) > track_mesurement_timeout_)
       {
+         if(debug_) {
+            printf("WARN [KFTracker::removeUncertainTracks] Track %d has not been updated for %f seconds. Removing it.\n", 
+                  i, abs((*it).current_state.time_stamp - (*it).last_measurement_time));
+         }
          tracks_.erase(it--);
       }
    }  
 }
 
-void
-KFTracker::updateCertainTracks(void)
+void KFTracker::updateCertainTracks(void)
 {
    if(debug_){
       printf("[KFTracker::updateCertainTracks] Number of available tracks = %lu \n", tracks_.size());
@@ -460,10 +579,10 @@ KFTracker::updateCertainTracks(void)
    {
       int i = it - tracks_.begin();
       // Calculate uncertainty of this track
-      auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matirx
+      auto P_p = (*it).current_state.P.block(0,0,3,3); // extract position covariance sub-matrix
       auto V = sqrt(std::fabs(P_p.determinant()));
       if(debug_)
-         printf( "WARN [KFTracker::updateCertainTracks] Track %d uncertainty = %f . number of measurements %d.\n", i, V, (*it).n);
+         printf("WARN [KFTracker::updateCertainTracks] Track %d uncertainty = %f. number of measurements %d.\n", i, V, (*it).n);
       // If certainty is acceptable, add it to certain_tracks_
       if (V <= V_certain_ && (*it).n >= (unsigned int)N_meas_)
       {
@@ -480,9 +599,8 @@ KFTracker::updateCertainTracks(void)
 
 /**
  * @param t current time
-*/
-void
-KFTracker::filterLoop(double t)
+ */
+void KFTracker::filterLoop(double t)
 {
    if(debug_)
       printf("[KFTracker::filterLoop] inside filterLoop... \n");
@@ -498,9 +616,6 @@ KFTracker::filterLoop(double t)
       return;
    }
 
-   // Do prediction step for all tracks.
-   // predictTracks();
-
    double dt = t - last_prediction_t_;
    predictTracks(dt);
    last_prediction_t_ = t;
@@ -508,7 +623,7 @@ KFTracker::filterLoop(double t)
    // Do correction step for all tracks using latest measurements.
    updateTracks(t);
 
-   // Extrack good tracks
+   // Extract good tracks
    updateCertainTracks();
 
    // Remove bad tracks
@@ -516,5 +631,3 @@ KFTracker::filterLoop(double t)
 
    return;
 }
-
-

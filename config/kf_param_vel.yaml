@@ -1,8 +1,8 @@
-# config/kf_param_accel.yaml
+# config/kf_param_vel.yaml
 /kf_tracker_node:
   ros__parameters:
-    # Motion model selection: 0 = CONSTANT_VELOCITY, 1 = CONSTANT_ACCELERATION
-    model_type: 1  # Use Constant Acceleration model
+    # Motion model selection: 0 = CONSTANT_VELOCITY
+    model_type: 0
     
     # Rate of prediction step
     dt_pred: 0.02
@@ -18,17 +18,15 @@
     N_meas: 10                      # Minimum number of measurements to confirm a track
     l_threshold: -10.0              # Measurement association log-likelihood threshold
     dist_threshold: 5.0             # Maximum distance between a state & measurement to consider them as a match
-    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain and removing it
+    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain
     
     # State estimation parameters
     sigma_a: 10.0    # Standard deviation of acceleration noise (for constant velocity model)
-    sigma_j: 5.0     # Standard deviation of jerk noise (for constant acceleration model) - NEW
     sigma_p: 0.5     # Standard deviation of position (for initial state covariance)
     sigma_v: 2.0     # Standard deviation of velocity (for initial state covariance)
     
-    # Constant Acceleration model-specific parameters
     # Diagonal elements of the process covariance matrix Q
-    q_diag: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    q_diag: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
     
     # Diagonal elements of the measurement covariance matrix R
     r_diag: [0.01, 0.01, 0.01]

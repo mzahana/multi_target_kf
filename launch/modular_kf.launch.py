@@ -1,4 +1,4 @@
-# launch/kf_const_vel.launch.py
+# launch/modular_kf.launch.py
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -7,19 +7,20 @@ from launch.substitutions import LaunchConfiguration
 from launch.actions import DeclareLaunchArgument
 
 def generate_launch_description():
-    # Add argument for the path of the yaml file
+    # Add arguments for the launch file
     kf_yaml = LaunchConfiguration('kf_yaml')
     detections_topic = LaunchConfiguration('detections_topic')
     namespace = LaunchConfiguration('kf_ns')
     model_type = LaunchConfiguration('model_type')
 
-    # Default config for constant velocity model
+    # Default config path
     config = os.path.join(
         get_package_share_directory('multi_target_kf'),
         'config',
-        'kf_param_vel.yaml'
+        'kf_param.yaml'
     )
     
+    # Launch arguments
     kf_yaml_launch_arg = DeclareLaunchArgument(
         'kf_yaml',
         default_value=config,
@@ -40,8 +41,8 @@ def generate_launch_description():
     
     model_type_launch_arg = DeclareLaunchArgument(
         'model_type',
-        default_value='0',  # 0 = CONSTANT_VELOCITY
-        description='Motion model type: 0=CONSTANT_VELOCITY, 1=CONSTANT_ACCELERATION'
+        default_value='0',
+        description='Motion model type: 0=CONSTANT_VELOCITY, 1=CONSTANT_ACCEL, etc.'
     )
 
     # KF node
@@ -53,7 +54,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             kf_yaml,
-            {'model_type': model_type}
+            {'model_type': model_type}  # Allow overriding the model type from the command line
         ],
         remappings=[('measurement/pose_array', detections_topic)]
     )
