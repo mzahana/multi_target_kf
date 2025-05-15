@@ -8,7 +8,7 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 
-The `multi_target_kf` package is a ROS 2 implementation of a linear Kalman filter for multi-target state estimation. The package supports multiple motion models and provides a framework for tracking multiple targets simultaneously. It uses the Hungarian algorithm for measurement-to-track association and implements a modular design that allows for easy extension with new motion models.
+The `multi_target_kf` package is a ROS 2 implementation of Kalman filters for multi-target state estimation. The package supports multiple motion models and provides a framework for tracking multiple targets simultaneously. It uses the Hungarian algorithm for measurement-to-track association and implements a modular design that allows for easy extension with new motion models.
 
 ![Alt Text](multi_target_kf_diagram.png)
 
