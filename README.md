@@ -1,7 +1,9 @@
 # multi_target_kf
 A ROS package with an implementation of a linear Kalman filter for multi-target state estimation.
 
-For a ROS2 version, use the [ros2_humble](https://github.com/mzahana/multi_target_kf/tree/ros2_humble) branch.
+This is the ROS 1 version and it's not maintained.
+
+**For ROS2 version, please use the `main` branch. The ROS2 version is much more mature, well documented, and includes more motion models.**
 
 # Dependencies
 * Eigen3
