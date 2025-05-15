@@ -1,0 +1,49 @@
+/kf_tracker_node:
+  ros__parameters:
+    # Motion model selection: 2 = ADAPTIVE_ACCEL_UKF
+    model_type: 2
+    
+    # Rate of prediction step
+    dt_pred: 0.02
+    
+    # Debugging
+    print_debug_msg: False
+    
+    # Uncertainty thresholds
+    V_max: 100.0          # Maximum uncertainty before rejecting a track [m^3]
+    V_certain: 30.0       # Minimum uncertainty for confirming a track [m^3]
+    
+    # Track confirmation and filtering
+    N_meas: 10                      # Minimum number of measurements to confirm a track
+    l_threshold: -10.0              # Measurement association log-likelihood threshold
+    dist_threshold: 5.0             # Maximum distance between a state & measurement to consider them as a match
+    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain
+    
+    # State estimation parameters
+    sigma_p: 0.5     # Standard deviation of position (for initial state covariance)
+    sigma_v: 2.0     # Standard deviation of velocity (for initial state covariance)
+    sigma_a: 1.0     # Standard deviation of acceleration (for initial state covariance)
+    
+    # UKF parameters
+    alpha: 0.3       # Spread parameter (smaller values = tighter spread around mean)
+    beta: 2.0        # Distribution parameter (2.0 optimal for Gaussian)
+    kappa: 0.0       # Secondary scaling parameter
+    
+    # Adaptive noise parameters
+    jerk_std: 5.0                 # Base jerk noise std deviation
+    jerk_adaptive_max: 20.0       # Maximum jerk std during maneuvers
+    adaptive_threshold: 2.5       # Threshold for maneuver detection
+    adaptive_decay: 0.95          # Decay rate for returning to nominal noise
+    innovation_window_size: 10    # Window size for maneuver detection
+    
+    # Measurement covariance matrix R
+    r_diag: [0.01, 0.01, 0.01]
+    
+    # Individual measurement covariance components (for convenience)
+    r_diag_x: 0.01
+    r_diag_y: 0.01
+    r_diag_z: 0.01
+    
+    # Frame settings
+    tracking_frame: 'observer/odom'  # Provide estimate w.r.t this frame
+    target_frameid: 'tag'            # Frame name of the detected target

@@ -1,0 +1,51 @@
+# config/kf_param_accel.yaml
+/kf_tracker_node:
+  ros__parameters:
+    # Motion model selection: 1 = CONSTANT_ACCELERATION
+    model_type: 1
+    
+    # Rate of prediction step
+    dt_pred: 0.02
+    
+    # Debugging
+    print_debug_msg: False
+    
+    # Uncertainty thresholds
+    V_max: 100.0          # Maximum uncertainty before rejecting a track [m^3]
+    V_certain: 30.0       # Minimum uncertainty for confirming a track [m^3]
+    
+    # Track confirmation and filtering
+    N_meas: 10                      # Minimum number of measurements to confirm a track
+    l_threshold: -10.0              # Measurement association log-likelihood threshold
+    dist_threshold: 5.0             # Maximum distance between a state & measurement to consider them as a match
+    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain
+    
+    # State estimation parameters
+    sigma_a: 10.0    # Standard deviation of acceleration noise (for constant velocity)
+    sigma_j: 5.0     # Standard deviation of jerk noise (for constant acceleration)
+    sigma_p: 0.5     # Standard deviation of position (for initial state covariance)
+    sigma_v: 2.0     # Standard deviation of velocity (for initial state covariance)
+    
+    # Diagonal elements of the process covariance matrix Q
+    q_diag: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    
+    # Diagonal elements of the measurement covariance matrix R
+    r_diag: [0.01, 0.01, 0.01]
+    
+    # Individual measurement covariance components (for convenience)
+    r_diag_x: 0.01
+    r_diag_y: 0.01
+    r_diag_z: 0.01
+    
+    # Frame settings
+    tracking_frame: 'observer/odom'  # Provide estimate w.r.t this frame
+    target_frameid: 'tag'            # Frame name of the detected target
+    
+    # TF settings
+    listen_tf: False                 # Get target measurements from TF tree
+    
+    # Advanced settings
+    do_kf_update_step: True          # Whether to perform the KF update step (for debugging)
+    state_buffer_length: 40          # Length of state buffer
+    measurement_off_time: 2.0        # Maximum time with no measurement before filter is stopped
+    use_track_id: False              # Consider measurement track ID in measurement-state association

@@ -1,26 +1,15 @@
-/********************************************************************
- ********************************************************************
- ** C++ class implementation of the Hungarian algorithm by David Schwarz, 2012
- **
- **
- ** O(n^3) implementation derived from libhungarian by Cyrill Stachniss, 2004
- **
- **
- ** Solving the Minimum Assignment Problem using the 
- ** Hungarian Method.
- **
- ** ** This file may be freely copied and distributed! **
- **
- **
- ** This file is distributed in the hope that it will be useful,
- ** but WITHOUT ANY WARRANTY; without even the implied 
- ** warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- ** PURPOSE.  
- **
- ********************************************************************
- ********************************************************************/
+///////////////////////////////////////////////////////////////////////////////
+// Hungarian.h: Header file for Class HungarianAlgorithm.
+// 
+// This is a C++ wrapper with slight modification of a hungarian algorithm implementation by Markus Buehren.
+// The original implementation is a few mex-functions for use in MATLAB, found here:
+// http://www.mathworks.com/matlabcentral/fileexchange/6543-functions-for-the-rectangular-assignment-problem
+// 
+// Both this code and the orignal code are published under the BSD license.
+// by Cong Ma, 2016
+// 
 
-// THIS IS A COPY FROM  https://github.com/aau-ros/aau_multi_robot/blob/master/explorer/include/hungarian.h 
+// SOURCE: https://github.com/mcximing/hungarian-algorithm-cpp/blob/master/Hungarian.h
 
 #ifndef HUNGARIAN_H
 #define HUNGARIAN_H
@@ -28,65 +17,26 @@
 #include <iostream>
 #include <vector>
 
-using std::vector;
-
-typedef enum {
-	HUNGARIAN_MODE_MINIMIZE_COST,
-	HUNGARIAN_MODE_MAXIMIZE_UTIL,
-} MODE;
-
-typedef enum {
-	HUNGARIAN_NOT_ASSIGNED,
-	HUNGARIAN_ASSIGNED,
-} ASSIGN;
+using namespace std;
 
 
-class Hungarian
+class HungarianAlgorithm
 {
-
 public:
-	/** This method initialize the hungarian_problem structure and init 
-	 *  the  cost matrices (missing lines or columns are filled with 0).
-	 *  It returns the size of the quadratic(!) assignment matrix. **/
-
-	Hungarian();
-	Hungarian(const vector<vector<int> >&, int, int, MODE);
-
-	int init(const vector<vector<int> >& input_matrix, 
-			   int rows, 
-			   int cols, 
-			   MODE mode);
-
-	/** This method computes the optimal assignment. **/
-	bool solve();
-
-	/** Accessor for the cost **/
-	int cost() const;
-
-	/** Reference accessor for assignment **/
-	const vector<vector<int> >& assignment() const;
-
-	/** Print the computed optimal assignment. **/
-	void print_assignment();
-
-	/** Print the cost matrix. **/
-	void print_cost();
-
-	/** Print cost matrix and assignment matrix. **/
-	void print_status();
-
-protected:
-	bool check_solution(const vector<int>& row_dec, const vector<int>& col_inc, const vector<int>& col_vertex);
-	bool assign_solution(const vector<int>& row_dec, const vector<int>& col_inc, const vector<int>& col_vertex);
+	HungarianAlgorithm();
+	~HungarianAlgorithm();
+	double Solve(vector <vector<double> >& DistMatrix, vector<int>& Assignment);
 
 private:
-
-	int m_cost;
-	int m_rows;
-	int m_cols;
-	vector<vector<int> > m_costmatrix;
-	vector<vector<int> > m_assignment;   
-
+	void assignmentoptimal(int *assignment, double *cost, double *distMatrix, int nOfRows, int nOfColumns);
+	void buildassignmentvector(int *assignment, bool *starMatrix, int nOfRows, int nOfColumns);
+	void computeassignmentcost(int *assignment, double *cost, double *distMatrix, int nOfRows);
+	void step2a(int *assignment, double *distMatrix, bool *starMatrix, bool *newStarMatrix, bool *primeMatrix, bool *coveredColumns, bool *coveredRows, int nOfRows, int nOfColumns, int minDim);
+	void step2b(int *assignment, double *distMatrix, bool *starMatrix, bool *newStarMatrix, bool *primeMatrix, bool *coveredColumns, bool *coveredRows, int nOfRows, int nOfColumns, int minDim);
+	void step3(int *assignment, double *distMatrix, bool *starMatrix, bool *newStarMatrix, bool *primeMatrix, bool *coveredColumns, bool *coveredRows, int nOfRows, int nOfColumns, int minDim);
+	void step4(int *assignment, double *distMatrix, bool *starMatrix, bool *newStarMatrix, bool *primeMatrix, bool *coveredColumns, bool *coveredRows, int nOfRows, int nOfColumns, int minDim, int row, int col);
+	void step5(int *assignment, double *distMatrix, bool *starMatrix, bool *newStarMatrix, bool *primeMatrix, bool *coveredColumns, bool *coveredRows, int nOfRows, int nOfColumns, int minDim);
 };
+
 
 #endif
