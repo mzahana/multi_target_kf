@@ -207,11 +207,35 @@ bool KFTracker::initKF(void)
       if (!model->setSigmaJ(sigma_j_)) return false;   // Now using sigma_j_ instead of sigma_a_
       if (!model->setSigmaP(sigma_p_)) return false;
       if (!model->setSigmaV(sigma_v_)) return false;
-      if (!model->setSigmaA(1.0)) return false;       // Default acceleration std
+      if (!model->setSigmaA(sigma_a_)) return false;       // Default acceleration std
       
       // Setup initial P matrix
-      if (!model->P(sigma_p_, sigma_v_, 1.0)) return false;
+      if (!model->P(sigma_p_, sigma_v_, sigma_a_)) return false;
    }
+   else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
+      // Cast to AdaptiveAccelUKF for model-specific initialization
+      AdaptiveAccelUKF* model = static_cast<AdaptiveAccelUKF*>(kf_model_);
+      
+      // Set UKF parameters
+      if (!model->setAlpha(config_.alpha)) return false;
+      if (!model->setBeta(config_.beta)) return false;
+      if (!model->setKappa(config_.kappa)) return false;
+      
+      // Set adaptive noise parameters
+      if (!model->setJerkStd(config_.jerk_std)) return false;
+      if (!model->setJerkAdaptiveMax(config_.jerk_adaptive_max)) return false;
+      if (!model->setAdaptiveThreshold(config_.adaptive_threshold)) return false;
+      if (!model->setAdaptiveDecay(config_.adaptive_decay)) return false;
+      if (!model->setInnovationWindowSize(config_.innovation_window_size)) return false;
+      
+      // Set initial uncertainties
+      if (!model->setSigmaP(config_.sigma_p)) return false;
+      if (!model->setSigmaV(config_.sigma_v)) return false;
+      if (!model->setSigmaA(config_.sigma_a)) return false;
+      
+      // Setup initial P matrix
+      if (!model->P(config_.sigma_p, config_.sigma_v, config_.sigma_a)) return false;
+    }
    // Add more model-specific initializations here for future models
    
    // Common initialization for all models

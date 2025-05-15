@@ -32,6 +32,16 @@ struct TrackerConfig {
     double sigma_p;                   // Standard deviation of position
     double sigma_v;                   // Standard deviation of velocity
     double sigma_j;                   // Standard deviation of jerk noise (for constant acceleration) - NEW
+
+    // UKF parameters 
+    double alpha;         // UKF spread parameter (default: 1.0)
+    double beta;          // UKF distribution parameter (default: 2.0)
+    double kappa;         // UKF secondary scaling parameter (default: 0.0) 
+    double jerk_std;      // Base jerk standard deviation (default: 5.0)
+    double jerk_adaptive_max; // Maximum adaptive jerk (default: 20.0)
+    double adaptive_threshold; // Maneuver detection threshold (default: 2.5)
+    double adaptive_decay;    // Adaptive noise decay factor (default: 0.95)
+    unsigned int innovation_window_size; // Window size for maneuver detection (default: 10)
     
     bool debug;                       // Enable debug output
     
@@ -58,6 +68,14 @@ struct TrackerConfig {
         sigma_p(1.0),  // Make sure this is before sigma_j
         sigma_v(1.0),
         sigma_j(5.0),  // Move sigma_j after sigma_v to match declaration order
+        alpha(1.0), // UKF params
+        beta(2.0),
+        kappa(0.0),
+        jerk_std(5.0),
+        jerk_adaptive_max(20.0),
+        adaptive_threshold(2.5),
+        adaptive_decay(0.95),
+        innovation_window_size(10),
         debug(false)
     {}
     
@@ -83,6 +101,18 @@ struct TrackerConfig {
         printf("- sigma_p: %.3f\n", sigma_p);
         printf("- sigma_v: %.3f\n", sigma_v);
         printf("- Debug mode: %s\n", debug ? "On" : "Off");
+
+        if (model_type == ADAPTIVE_ACCEL_UKF) {
+            printf("- UKF alpha: %.2f\n", alpha);
+            printf("- UKF beta: %.2f\n", beta);
+            printf("- UKF kappa: %.2f\n", kappa);
+            printf("- Jerk std: %.2f\n", jerk_std);
+            printf("- Max adaptive jerk: %.2f\n", jerk_adaptive_max);
+            printf("- Adaptive threshold: %.2f\n", adaptive_threshold);
+            printf("- Adaptive decay: %.2f\n", adaptive_decay);
+            printf("- Innovation window size: %u\n", innovation_window_size);
+        }
+        
     }
 };
 

@@ -121,23 +121,63 @@ void TrackerROS::loadParameters()
    this->declare_parameter("r_diag_x", 0.01);
    this->declare_parameter("r_diag_y", 0.01);
    this->declare_parameter("r_diag_z", 0.01);
+
+   // UKF specific parameters
+   if (config_.model_type == ADAPTIVE_ACCEL_UKF)
+   {
+        this->declare_parameter("alpha", config_.alpha);
+        config_.alpha = this->get_parameter("alpha").get_parameter_value().get<double>();
+        
+        this->declare_parameter("beta", config_.beta);
+        config_.beta = this->get_parameter("beta").get_parameter_value().get<double>();
+        
+        this->declare_parameter("kappa", config_.kappa);
+        config_.kappa = this->get_parameter("kappa").get_parameter_value().get<double>();
+        
+        this->declare_parameter("jerk_std", config_.jerk_std);
+        config_.jerk_std = this->get_parameter("jerk_std").get_parameter_value().get<double>();
+        
+        this->declare_parameter("jerk_adaptive_max", config_.jerk_adaptive_max);
+        config_.jerk_adaptive_max = this->get_parameter("jerk_adaptive_max").get_parameter_value().get<double>();
+        
+        this->declare_parameter("adaptive_threshold", config_.adaptive_threshold);
+        config_.adaptive_threshold = this->get_parameter("adaptive_threshold").get_parameter_value().get<double>();
+        
+        this->declare_parameter("adaptive_decay", config_.adaptive_decay);
+        config_.adaptive_decay = this->get_parameter("adaptive_decay").get_parameter_value().get<double>();
+        
+        this->declare_parameter("innovation_window_size", static_cast<int>(config_.innovation_window_size));
+        config_.innovation_window_size = static_cast<unsigned int>(this->get_parameter("innovation_window_size").get_parameter_value().get<int>());
+   }
    
    // TF listening
    this->declare_parameter("listen_tf", false);
    listen_tf_ = this->get_parameter("listen_tf").get_parameter_value().get<bool>();
    
    if (config_.debug) {
-      RCLCPP_INFO(this->get_logger(), "Loaded parameters:");
-      RCLCPP_INFO(this->get_logger(), "  Model type: %s", ModelFactory::getModelName(config_.model_type));
-      RCLCPP_INFO(this->get_logger(), "  dt_pred: %f", config_.dt_pred);
-      RCLCPP_INFO(this->get_logger(), "  V_max: %f", config_.V_max);
-      RCLCPP_INFO(this->get_logger(), "  V_certain: %f", config_.V_certain);
-      RCLCPP_INFO(this->get_logger(), "  N_meas: %d", config_.N_meas);
-      RCLCPP_INFO(this->get_logger(), "  sigma_a: %f", config_.sigma_a);
-      RCLCPP_INFO(this->get_logger(), "  sigma_p: %f", config_.sigma_p);
-      RCLCPP_INFO(this->get_logger(), "  sigma_v: %f", config_.sigma_v);
-      RCLCPP_INFO(this->get_logger(), "  sigma_j: %f", config_.sigma_j);
-      RCLCPP_INFO(this->get_logger(), "  track_mesurement_timeout: %f", config_.track_measurement_timeout);
+        RCLCPP_INFO(this->get_logger(), "Loaded parameters:");
+        RCLCPP_INFO(this->get_logger(), "  Model type: %s", ModelFactory::getModelName(config_.model_type));
+        RCLCPP_INFO(this->get_logger(), "  dt_pred: %f", config_.dt_pred);
+        RCLCPP_INFO(this->get_logger(), "  V_max: %f", config_.V_max);
+        RCLCPP_INFO(this->get_logger(), "  V_certain: %f", config_.V_certain);
+        RCLCPP_INFO(this->get_logger(), "  N_meas: %d", config_.N_meas);
+        RCLCPP_INFO(this->get_logger(), "  sigma_a: %f", config_.sigma_a);
+        RCLCPP_INFO(this->get_logger(), "  sigma_p: %f", config_.sigma_p);
+        RCLCPP_INFO(this->get_logger(), "  sigma_v: %f", config_.sigma_v);
+        RCLCPP_INFO(this->get_logger(), "  sigma_j: %f", config_.sigma_j);
+        RCLCPP_INFO(this->get_logger(), "  track_mesurement_timeout: %f", config_.track_measurement_timeout);
+
+        // Add UKF parameter logging if using UKF model
+        if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
+            RCLCPP_INFO(this->get_logger(), "  alpha: %f", config_.alpha);
+            RCLCPP_INFO(this->get_logger(), "  beta: %f", config_.beta);
+            RCLCPP_INFO(this->get_logger(), "  kappa: %f", config_.kappa);
+            RCLCPP_INFO(this->get_logger(), "  jerk_std: %f", config_.jerk_std);
+            RCLCPP_INFO(this->get_logger(), "  jerk_adaptive_max: %f", config_.jerk_adaptive_max);
+            RCLCPP_INFO(this->get_logger(), "  adaptive_threshold: %f", config_.adaptive_threshold);
+            RCLCPP_INFO(this->get_logger(), "  adaptive_decay: %f", config_.adaptive_decay);
+            RCLCPP_INFO(this->get_logger(), "  innovation_window_size: %u", config_.innovation_window_size);
+        }
    }
 }
 
@@ -387,7 +427,30 @@ void TrackerROS::paramsTimerCallback()
          ConstantAccelModel* model = static_cast<ConstantAccelModel*>(kf_tracker_->kf_model_);
          model->setSigmaJ(sigma_j);
       }
-   }
+    }
+    // Update UKF model parameters if using that model
+    else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
+        AdaptiveAccelUKF* model = static_cast<AdaptiveAccelUKF*>(kf_tracker_->kf_model_);
+        
+        // Check if any key parameters have changed
+        double jerk_std = this->get_parameter("jerk_std").as_double();
+        if (jerk_std != config_.jerk_std) {
+            config_.jerk_std = jerk_std;
+            model->setJerkStd(jerk_std);
+        }
+        
+        double adaptive_threshold = this->get_parameter("adaptive_threshold").as_double();
+        if (adaptive_threshold != config_.adaptive_threshold) {
+            config_.adaptive_threshold = adaptive_threshold;
+            model->setAdaptiveThreshold(adaptive_threshold);
+        }
+        
+        double adaptive_decay = this->get_parameter("adaptive_decay").as_double();
+        if (adaptive_decay != config_.adaptive_decay) {
+            config_.adaptive_decay = adaptive_decay;
+            model->setAdaptiveDecay(adaptive_decay);
+        }
+    }
    
    // Update R matrix from individual components if they're set
    double r_diag_x = this->get_parameter("r_diag_x").as_double();

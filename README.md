@@ -24,11 +24,8 @@ The `multi_target_kf` package is a ROS 2 implementation of a linear Kalman filte
   - [Configuration](#configuration)
   - [Launch Files](#launch-files)
   - [ROS Topics](#ros-topics)
-- [Extending the Package](#extending-the-package)
-  - [Creating a New Motion Model](#creating-a-new-motion-model)
-  - [Registering the New Model](#registering-the-new-model)
-- [API Reference](#api-reference)
 - [Examples](#examples)
+- [Extending the Package](#extending-the-package)
 - [Testing](#testing)
 
 ## Installation
@@ -112,7 +109,7 @@ multi_target_kf/
 
 ### Available Models
 
-The package currently provides two motion models:
+The package currently provides these motion models:
 
 1. **Constant Velocity Model (CONSTANT_VELOCITY)**
    - State vector: `[px, py, pz, vx, vy, vz]`
@@ -124,7 +121,13 @@ The package currently provides two motion models:
    - Assumes targets move with constant acceleration
    - Process noise is modeled as random jerks
 
-Both models use a measurement vector `[px, py, pz]` which represents 3D position measurements.
+3. **Adaptive Acceleration UKF Model (ADAPTIVE_ACCEL_UKF)**
+   - State vector: `[px, py, pz, vx, vy, vz, ax, ay, az]`
+   - Uses Unscented Kalman Filter for nonlinear state estimation
+   - Features adaptive process noise that increases during maneuvers
+   - Ideal for tracking agile targets with frequent trajectory changes
+
+All models use a measurement vector `[px, py, pz]` which represents 3D position measurements.
 
 ### Model Parameters
 
@@ -150,6 +153,19 @@ Both models use a measurement vector `[px, py, pz]` which represents 3D position
 - `sigma_v`: Standard deviation of velocity for initial state covariance
 - `sigma_a`: Standard deviation of acceleration for initial state covariance
 
+#### Adaptive Acceleration UKF Model Parameters
+
+- `alpha`: Controls spread of sigma points (default: 0.3)
+- `beta`: Distribution parameter (2.0 optimal for Gaussian distributions)
+- `kappa`: Secondary scaling parameter (usually 0)
+- `jerk_std`: Base jerk noise standard deviation
+- `jerk_adaptive_max`: Maximum adaptive jerk during maneuvers
+- `adaptive_threshold`: Threshold for maneuver detection
+- `adaptive_decay`: Rate of return to nominal noise levels
+- `innovation_window_size`: Window size for maneuver detection
+- `sigma_v`: Standard deviation of velocity for initial state covariance
+- `sigma_a`: Standard deviation of acceleration for initial state covariance
+
 ## Usage
 
 ### Configuration
@@ -158,51 +174,7 @@ The package can be configured through YAML parameter files. Example configuratio
 
 - `kf_param_vel.yaml`: Configuration for the constant velocity model
 - `kf_param_accel.yaml`: Configuration for the constant acceleration model
-
-Here's an example configuration for the constant velocity model:
-
-```yaml
-/kf_tracker_node:
-  ros__parameters:
-    # Motion model selection: 0 = CONSTANT_VELOCITY
-    model_type: 0
-    
-    # Rate of prediction step
-    dt_pred: 0.02
-    
-    # Debugging
-    print_debug_msg: False
-    
-    # Uncertainty thresholds
-    V_max: 100.0          # Maximum uncertainty before rejecting a track [m^3]
-    V_certain: 30.0       # Minimum uncertainty for confirming a track [m^3]
-    
-    # Track confirmation and filtering
-    N_meas: 10                      # Minimum number of measurements to confirm a track
-    l_threshold: -10.0              # Measurement association log-likelihood threshold
-    dist_threshold: 5.0             # Maximum distance between a state & measurement to consider them as a match
-    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain
-    
-    # State estimation parameters
-    sigma_a: 10.0    # Standard deviation of acceleration noise (for constant velocity model)
-    sigma_p: 0.5     # Standard deviation of position (for initial state covariance)
-    sigma_v: 2.0     # Standard deviation of velocity (for initial state covariance)
-    
-    # Diagonal elements of the process covariance matrix Q
-    q_diag: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
-    
-    # Diagonal elements of the measurement covariance matrix R
-    r_diag: [0.01, 0.01, 0.01]
-    
-    # Individual measurement covariance components (for convenience)
-    r_diag_x: 0.01
-    r_diag_y: 0.01
-    r_diag_z: 0.01
-    
-    # Frame settings
-    tracking_frame: 'observer/odom'  # Provide estimate w.r.t this frame
-    target_frameid: 'tag'            # Frame name of the detected target
-```
+- `kf_param_ukf.yaml`: Configuration for the UKF with constant acceleration model and adaptive noise 
 
 ### Launch Files
 
@@ -218,12 +190,19 @@ The package provides several launch files:
    ros2 launch multi_target_kf kf_const_accel.launch.py
    ```
 
-3. **kf_rviz.launch.py**: Launch the tracker with RViz visualization
+3. **kf_const_ukf.launch.py**: Launch the UKF tracker with a constant acceleration model and adaptive noise
+   ```bash
+   ros2 launch multi_target_kf kf_const_ukf.launch.py
+   ```
+
+4. **kf_rviz.launch.py**: Launch the tracker with RViz visualization
    ```bash
    ros2 launch multi_target_kf kf_rviz.launch.py
    ```
 
-4. **modular_kf.launch.py**: Launch with configurable parameters
+
+
+5. **modular_kf.launch.py**: Launch with configurable parameters
    ```bash
    # Example: Launch with custom parameters
    ros2 launch multi_target_kf modular_kf.launch.py model_type:=1 detections_topic:=my_measurements
@@ -246,311 +225,6 @@ The package provides several launch files:
 
 - `KFTrack.msg`: Single track information including position, velocity, acceleration (when applicable), and covariance
 - `KFTracks.msg`: Array of `KFTrack` messages with a header
-
-## Extending the Package
-
-### Creating a New Motion Model
-
-To create a new motion model, follow these steps:
-
-1. **Create a new header file** in the `include/multi_target_kf/` directory, e.g., `my_new_model.h`
-2. **Implement the model** by inheriting from the `MotionModel` base class
-
-Example template for a new motion model:
-
-```cpp
-// include/multi_target_kf/my_new_model.h
-#ifndef MY_NEW_MODEL_H
-#define MY_NEW_MODEL_H
-
-#include "multi_target_kf/motion_model.h"
-#include <vector>
-
-class MyNewModel : public MotionModel {
-private:
-    // Model-specific parameters
-    double param1_, param2_;
-
-public:
-    /* Constructor */
-    MyNewModel() : param1_(0.0), param2_(0.0) {
-        NUM_STATES = 9;        // Set the size of your state vector
-        NUM_MEASUREMENTS = 3;  // Usually 3 for position measurements
-        init();
-    }
-    
-    ~MyNewModel() override {}
-
-    bool init() override {
-        // Initialize matrices and vectors
-        F_.resize(NUM_STATES, NUM_STATES);
-        F_ = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
-        
-        H_.resize(NUM_MEASUREMENTS, NUM_STATES);
-        H_ = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS, NUM_STATES);
-        
-        Q_.resize(NUM_STATES, NUM_STATES);
-        Q_ = Eigen::MatrixXd::Zero(NUM_STATES, NUM_STATES);
-        
-        P_.resize(NUM_STATES, NUM_STATES);
-        P_ = Eigen::MatrixXd::Zero(NUM_STATES, NUM_STATES);
-        
-        R_.resize(NUM_MEASUREMENTS, NUM_MEASUREMENTS);
-        R_ = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS, NUM_MEASUREMENTS);
-        
-        x_.resize(NUM_STATES, 1);
-        x_ = Eigen::MatrixXd::Zero(NUM_STATES, 1);
-        
-        debug_ = false;
-        dt_ = 0.01;
-        current_t_ = 0.0;
-
-        return true;
-    }
-    
-    // Model-specific setters
-    bool setParam1(double p) {
-        if (p <= 0) return false;
-        param1_ = p;
-        return true;
-    }
-    
-    bool setParam2(double p) {
-        if (p <= 0) return false;
-        param2_ = p;
-        return true;
-    }
-    
-    // Implementation of base class virtual methods
-    Eigen::VectorXd f(Eigen::VectorXd x, double dt) override {
-        // Implement your state prediction function
-        // This defines how states evolve over time
-        
-        // Example for a simple model:
-        if (debug()) printf("[MyNewModel::f] Calculating f\n");
-        
-        if (dt <= 0) {
-            printf("[MyNewModel::f] dt is <= 0. Returning same x\n");
-            return x;
-        }
-        
-        // IMPLEMENT YOUR STATE TRANSITION
-        // For example:
-        Eigen::MatrixXd A = Eigen::MatrixXd::Identity(NUM_STATES, NUM_STATES);
-        
-        // Custom state transition logic
-        
-        return (A * x);
-    }
-    
-    // Other required method implementations
-    // ...
-
-    // Full implementation should include all pure virtual methods from MotionModel
-    // See existing models like constant_vel.h or constant_accel.h for complete examples
-};
-
-#endif // MY_NEW_MODEL_H
-```
-
-### Registering the New Model
-
-After creating your model, you need to:
-
-1. **Update the `ModelType` enum** in `model_factory.h`:
-
-```cpp
-enum ModelType {
-    CONSTANT_VELOCITY = 0,
-    CONSTANT_ACCELERATION = 1,
-    MY_NEW_MODEL = 2,  // Add your new model type
-};
-```
-
-2. **Include your model header** in `model_factory.h`:
-
-```cpp
-#include "multi_target_kf/my_new_model.h"
-```
-
-3. **Add your model to the factory** in `model_factory.h`:
-
-```cpp
-static MotionModel* createModel(ModelType type) {
-    switch (type) {
-        case CONSTANT_VELOCITY:
-            return new ConstantVelModel();
-        case CONSTANT_ACCELERATION:
-            return new ConstantAccelModel();
-        case MY_NEW_MODEL:  // Add your new case
-            return new MyNewModel();
-        default:
-            return nullptr;
-    }
-}
-
-static const char* getModelName(ModelType type) {
-    switch (type) {
-        case CONSTANT_VELOCITY:
-            return "Constant Velocity";
-        case CONSTANT_ACCELERATION:
-            return "Constant Acceleration";
-        case MY_NEW_MODEL:  // Add your new case
-            return "My New Model";
-        default:
-            return "Unknown Model";
-    }
-}
-```
-
-4. **Create a configuration file** for your model in the `config/` directory
-
-5. **(Optional) Create a launch file** for your model in the `launch/` directory
-
-## API Reference
-
-### Key Classes
-
-#### MotionModel
-
-Abstract base class for all motion models. Defines the interface for state estimation.
-
-```cpp
-class MotionModel {
-public:
-    // Core KF methods to be implemented by derived classes
-    virtual Eigen::VectorXd f(Eigen::VectorXd x, double dt) = 0; // State prediction
-    virtual Eigen::VectorXd h(Eigen::VectorXd x) = 0; // Measurement model
-    virtual Eigen::MatrixXd F(double dt) = 0; // State transition matrix
-    virtual Eigen::MatrixXd H() = 0; // Measurement matrix
-    
-    // KF operations
-    virtual kf_state predictX(kf_state s, double dt) = 0;
-    virtual kf_state updateX(sensor_measurement z, kf_state s) = 0;
-    virtual double logLikelihood(kf_state xx, sensor_measurement z) = 0;
-    virtual kf_state initStateFromMeasurements(sensor_measurement z) = 0;
-    virtual double computeDistance(kf_state xx, sensor_measurement zz) = 0;
-    
-    // Other methods...
-};
-```
-
-#### KFTracker
-
-Core implementation of the Kalman filter tracker.
-
-```cpp
-class KFTracker {
-public:
-    KFTracker(const TrackerConfig& config = TrackerConfig());
-    KFTracker(ModelType model_type);
-    ~KFTracker();
-    
-    const TrackerConfig& getConfig() const;
-    bool setConfig(const TrackerConfig& config);
-    ModelType getModelType() const;
-    bool setModel(ModelType model_type);
-    
-    // Filter operations
-    void filterLoop(double t);
-    
-    // Other methods...
-};
-```
-
-#### TrackerROS
-
-ROS interface for the Kalman filter tracker.
-
-```cpp
-class TrackerROS : public rclcpp::Node {
-public:
-    TrackerROS();
-    ~TrackerROS();
-    
-private:
-    // Methods for ROS communication
-    void loadParameters();
-    void poseArrayCallback(const geometry_msgs::msg::PoseArray & msg);
-    void publishCertainTracks(void);
-    void publishAllTracks(void);
-    void filterLoop(void);
-    void paramsTimerCallback(void);
-};
-```
-
-### Data Structures
-
-#### kf_state
-
-Stores the current Kalman filter state estimate.
-
-```cpp
-struct kf_state {
-   double time_stamp;
-   Eigen::VectorXd x; // State estimate
-   Eigen::MatrixXd P; // State estimate covariance
-};
-```
-
-#### sensor_measurement
-
-Stores a sensor measurement.
-
-```cpp
-struct sensor_measurement {
-   double time_stamp; 
-   unsigned int id; // Optional. Associated measurement ID, e.g. Apriltag ID
-   Eigen::VectorXd z; // Measurements, e.g. 3D position
-   Eigen::MatrixXd R; // Measurement covariance matrix
-};
-```
-
-#### kf_track
-
-Stores a track with its state history.
-
-```cpp
-struct kf_track {
-   unsigned int id; // Unique track ID
-   std::string frame_id;
-   kf_state current_state;
-   std::vector<kf_state> buffer;
-   unsigned int n; // Number of received measurements
-   double last_measurement_time;
-};
-```
-
-#### TrackerConfig
-
-Configuration structure for the Kalman filter tracker.
-
-```cpp
-struct TrackerConfig {
-    ModelType model_type;
-    double dt_pred;
-    double V_max;
-    double V_certain;
-    int N_meas;
-    double l_threshold;
-    double dist_threshold;
-    std::string tracking_frame;
-    bool do_update_step;
-    double measurement_off_time;
-    bool use_track_id;
-    double track_measurement_timeout;
-    unsigned int state_buffer_size;
-    std::vector<double> q_diag;
-    std::vector<double> r_diag;
-    double sigma_a;
-    double sigma_p;
-    double sigma_v;
-    double sigma_j;
-    bool debug;
-    
-    // Constructor and methods...
-};
-```
 
 ## Examples
 
@@ -580,6 +254,465 @@ To use custom parameters:
    ```bash
    ros2 launch multi_target_kf modular_kf.launch.py kf_yaml:=~/my_params.yaml
    ```
+
+### Example: AdaptiveAccelUKF Model
+
+An example of a more complex model is the `AdaptiveAccelUKF` model which implements an Unscented Kalman Filter with adaptive process noise. The model enhances tracking of maneuvering targets by:
+
+1. Using sigma points to capture nonlinear state transitions
+2. Detecting maneuvers through innovation monitoring
+3. Adaptively adjusting process noise during aggressive maneuvers
+
+To use this model:
+
+```bash
+ros2 launch multi_target_kf kf_const_ukf.launch.py
+```
+
+Or with RViz visualization:
+
+```bash
+ros2 launch multi_target_kf kf_rviz.launch.py model_type:=2
+```
+
+Key parameters for the UKF model include:
+
+- `alpha`: Controls spread of sigma points (default: 0.3)
+- `beta`: Prior knowledge of distribution (2.0 for Gaussian distributions)
+- `kappa`: Secondary scaling parameter (usually 0)
+- `jerk_std`: Base jerk noise standard deviation
+- `jerk_adaptive_max`: Maximum adaptive jerk during maneuvers
+- `adaptive_threshold`: Threshold for maneuver detection
+- `adaptive_decay`: Rate of return to nominal noise levels
+
+These parameters can be tuned in the config file or set at runtime using ROS parameters.
+
+## Extending the Package
+
+### Creating a New Motion Model
+
+The `multi_target_kf` package is designed to be easily extensible with new motion models. Below is a comprehensive guide on how to add your own custom motion model to the package.
+
+#### Step 1: Create the Motion Model Header File
+
+First, create a new header file in the `include/multi_target_kf/` directory for your motion model. The model must inherit from the `MotionModel` base class and implement all required virtual methods.
+
+Example structure for a new model (`my_new_model.h`):
+
+```cpp
+// include/multi_target_kf/my_new_model.h
+#ifndef MY_NEW_MODEL_H
+#define MY_NEW_MODEL_H
+
+#include "multi_target_kf/motion_model.h"
+#include <vector>
+
+class MyNewModel : public MotionModel {
+private:
+    // Model-specific parameters and member variables
+    double param1_, param2_;
+    
+    // For more complex models like UKF, additional internal structures
+    std::vector<double> internal_weights_;
+    Eigen::MatrixXd sigma_points_;
+
+public:
+    /* Constructor */
+    MyNewModel() : param1_(0.0), param2_(0.0) {
+        NUM_STATES = 9;        // Set the size of your state vector
+        NUM_MEASUREMENTS = 3;  // Usually 3 for position measurements
+        init();
+        
+        // Initialize model-specific structures
+        initializeInternalStructures();
+    }
+    
+    ~MyNewModel() override {}
+
+    // Required overrides from MotionModel base class
+    bool init() override;
+    Eigen::VectorXd f(Eigen::VectorXd x, double dt) override;
+    Eigen::VectorXd h(Eigen::VectorXd x) override;
+    Eigen::MatrixXd F(double dt) override;
+    bool F(Eigen::MatrixXd M) override;
+    Eigen::MatrixXd H() override;
+    bool H(Eigen::MatrixXd M) override;
+    Eigen::MatrixXd Q(double dt) override;
+    bool Q(Eigen::MatrixXd M) override;
+    bool Q(std::vector<double> v) override;
+    Eigen::MatrixXd R() override;
+    bool R(Eigen::MatrixXd M) override;
+    bool R(std::vector<double> v) override;
+    Eigen::MatrixXd P() override;
+    bool P(Eigen::MatrixXd M) override;
+    kf_state predictX(kf_state s, double dt) override;
+    kf_state updateX(sensor_measurement z, kf_state s) override;
+    double logLikelihood(kf_state xx, sensor_measurement z) override;
+    kf_state initStateFromMeasurements(sensor_measurement z) override;
+    double computeDistance(kf_state xx, sensor_measurement zz) override;
+    
+    // Model-specific methods
+    void initializeInternalStructures();
+    bool setParam1(double p);
+    bool setParam2(double p);
+    
+    // Add any other model-specific methods you need
+};
+
+#endif // MY_NEW_MODEL_H
+```
+
+Implement all the required methods in the header file. For an example of a complete implementation, refer to the existing models like `constant_vel.h`, `constant_accel.h`, or the more complex `adaptive_accel_ukf.h`.
+
+#### Step 2: Update the ModelType Enum
+
+Add your new model type to the `ModelType` enum in `include/multi_target_kf/model_factory.h`:
+
+```cpp
+// include/multi_target_kf/model_factory.h
+enum ModelType {
+    CONSTANT_VELOCITY = 0,
+    CONSTANT_ACCELERATION = 1,
+    ADAPTIVE_ACCEL_UKF = 2,
+    MY_NEW_MODEL = 3,  // Add your new model type here
+};
+```
+
+#### Step 3: Include Your Model Header
+
+Add an include statement for your new model header in `model_factory.h`:
+
+```cpp
+// include/multi_target_kf/model_factory.h
+#include "multi_target_kf/motion_model.h"
+#include "multi_target_kf/constant_vel.h"
+#include "multi_target_kf/constant_accel.h"
+#include "multi_target_kf/adaptive_accel_ukf.h"
+#include "multi_target_kf/my_new_model.h"  // Add this include
+```
+
+#### Step 4: Register Your Model in the ModelFactory
+
+Update the factory methods in `model_factory.h` to create instances of your model:
+
+```cpp
+// In the ModelFactory class:
+static MotionModel* createModel(ModelType type) {
+    switch (type) {
+        case CONSTANT_VELOCITY:
+            return new ConstantVelModel();
+        case CONSTANT_ACCELERATION:
+            return new ConstantAccelModel();
+        case ADAPTIVE_ACCEL_UKF:
+            return new AdaptiveAccelUKF();
+        case MY_NEW_MODEL:  // Add your new case
+            return new MyNewModel();
+        default:
+            return nullptr;
+    }
+}
+
+static const char* getModelName(ModelType type) {
+    switch (type) {
+        case CONSTANT_VELOCITY:
+            return "Constant Velocity";
+        case CONSTANT_ACCELERATION:
+            return "Constant Acceleration";
+        case ADAPTIVE_ACCEL_UKF:
+            return "Adaptive Acceleration UKF";
+        case MY_NEW_MODEL:  // Add your new case
+            return "My New Model";
+        default:
+            return "Unknown Model";
+    }
+}
+```
+
+#### Step 5: Update the TrackerConfig Structure
+
+Modify the `TrackerConfig` structure in `include/multi_target_kf/tracker_config.h` to include any model-specific parameters your model needs:
+
+```cpp
+// include/multi_target_kf/tracker_config.h
+struct TrackerConfig {
+    // Existing parameters...
+    
+    // Parameters for your new model
+    double my_param1;
+    double my_param2;
+    
+    // In the constructor, initialize with default values
+    TrackerConfig() :
+        // Existing initializations...
+        my_param1(1.0),
+        my_param2(2.0)
+    {}
+    
+    // Update the print method if needed
+    void print() const {
+        // Existing code...
+        if (model_type == MY_NEW_MODEL) {
+            printf("- My Param 1: %f\n", my_param1);
+            printf("- My Param 2: %f\n", my_param2);
+        }
+    }
+};
+```
+
+#### Step 6: Update the KFTracker Implementation
+
+Modify the `initKF` method in `src/kf_tracker.cpp` to initialize your model:
+
+```cpp
+// In src/kf_tracker.cpp
+
+bool KFTracker::initKF(void)
+{
+    // Existing code...
+    
+    // Model-specific initialization
+    if (config_.model_type == CONSTANT_VELOCITY) {
+        // Existing constant velocity initialization...
+    }
+    else if (config_.model_type == CONSTANT_ACCELERATION) {
+        // Existing constant acceleration initialization...
+    }
+    else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
+        // Existing UKF initialization...
+    }
+    else if (config_.model_type == MY_NEW_MODEL) {
+        // Cast to your model type for model-specific initialization
+        MyNewModel* model = static_cast<MyNewModel*>(kf_model_);
+        
+        // Set model-specific parameters
+        if (!model->setParam1(config_.my_param1)) return false;
+        if (!model->setParam2(config_.my_param2)) return false;
+        
+        // Set initial state parameters (if applicable)
+        if (!model->setSigmaP(config_.sigma_p)) return false;
+        
+        // Setup initial matrices
+        if (!model->Q(q_diag_)) return false;
+        if (!model->R(r_diag_)) return false;
+    }
+    
+    // Existing code...
+}
+```
+
+#### Step 7: Update TrackerROS for Parameter Loading
+
+Modify the `loadParameters` method in `src/tracker_ros.cpp` to load your model's parameters:
+
+```cpp
+// In src/tracker_ros.cpp
+
+void TrackerROS::loadParameters()
+{
+    // Existing code...
+    
+    // Parameters for your model
+    this->declare_parameter("my_param1", config_.my_param1);
+    config_.my_param1 = this->get_parameter("my_param1").get_parameter_value().get<double>();
+    
+    this->declare_parameter("my_param2", config_.my_param2);
+    config_.my_param2 = this->get_parameter("my_param2").get_parameter_value().get<double>();
+    
+    // Existing code...
+    
+    if (config_.debug) {
+        // Existing debug output...
+        
+        // Add model parameter logging if using your model
+        if (config_.model_type == MY_NEW_MODEL) {
+            RCLCPP_INFO(this->get_logger(), "  my_param1: %f", config_.my_param1);
+            RCLCPP_INFO(this->get_logger(), "  my_param2: %f", config_.my_param2);
+        }
+    }
+}
+```
+
+Also update the `paramsTimerCallback` method to handle dynamic updates of your model's parameters:
+
+```cpp
+// In src/tracker_ros.cpp
+
+void TrackerROS::paramsTimerCallback()
+{
+    // Existing code...
+    
+    // Update your model parameters if using that model
+    if (config_.model_type == MY_NEW_MODEL) {
+        MyNewModel* model = static_cast<MyNewModel*>(kf_tracker_->kf_model_);
+        
+        // Check if any parameters have changed
+        double my_param1 = this->get_parameter("my_param1").as_double();
+        if (my_param1 != config_.my_param1) {
+            config_.my_param1 = my_param1;
+            model->setParam1(my_param1);
+        }
+        
+        double my_param2 = this->get_parameter("my_param2").as_double();
+        if (my_param2 != config_.my_param2) {
+            config_.my_param2 = my_param2;
+            model->setParam2(my_param2);
+        }
+    }
+    
+    // Existing code...
+}
+```
+
+#### Step 8: Create a Configuration File
+
+Create a configuration YAML file for your model in the `config/` directory:
+
+```yaml
+# config/kf_param_my_model.yaml
+/kf_tracker_node:
+  ros__parameters:
+    # Motion model selection: 3 = MY_NEW_MODEL
+    model_type: 3
+    
+    # Rate of prediction step
+    dt_pred: 0.02
+    
+    # Debugging
+    print_debug_msg: False
+    
+    # Uncertainty thresholds
+    V_max: 100.0          # Maximum uncertainty before rejecting a track [m^3]
+    V_certain: 30.0       # Minimum uncertainty for confirming a track [m^3]
+    
+    # Track confirmation and filtering
+    N_meas: 10                      # Minimum number of measurements to confirm a track
+    l_threshold: -10.0              # Measurement association log-likelihood threshold
+    dist_threshold: 5.0             # Maximum distance between a state & measurement to consider them as a match
+    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain
+    
+    # Your model's specific parameters
+    my_param1: 1.0
+    my_param2: 2.0
+    
+    # Common parameters
+    sigma_p: 0.5     # Standard deviation of position (for initial state covariance)
+    
+    # Measurement covariance matrix R
+    r_diag: [0.01, 0.01, 0.01]
+    
+    # Individual measurement covariance components (for convenience)
+    r_diag_x: 0.01
+    r_diag_y: 0.01
+    r_diag_z: 0.01
+    
+    # Frame settings
+    tracking_frame: 'observer/odom'  # Provide estimate w.r.t this frame
+    target_frameid: 'tag'            # Frame name of the detected target
+```
+
+#### Step 9: Create a Launch File
+
+Create a launch file for your model in the `launch/` directory:
+
+```python
+# launch/kf_my_model.launch.py
+import os
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument
+
+def generate_launch_description():
+    # Add argument for the path of the yaml file
+    kf_yaml = LaunchConfiguration('kf_yaml')
+    detections_topic = LaunchConfiguration('detections_topic')
+    namespace = LaunchConfiguration('kf_ns')
+    model_type = LaunchConfiguration('model_type')
+
+    # Default config for your model
+    config = os.path.join(
+        get_package_share_directory('multi_target_kf'),
+        'config',
+        'kf_param_my_model.yaml'
+    )
+    
+    kf_yaml_launch_arg = DeclareLaunchArgument(
+        'kf_yaml',
+        default_value=config,
+        description='Path to the YAML file with KF parameters'
+    )
+
+    detections_topic_launch_arg = DeclareLaunchArgument(
+        'detections_topic',
+        default_value='measurement/pose_array',
+        description='Topic for incoming measurements'
+    )
+
+    namespace_launch_arg = DeclareLaunchArgument(
+        'kf_ns',
+        default_value='',
+        description='Namespace for the KF node'
+    )
+    
+    model_type_launch_arg = DeclareLaunchArgument(
+        'model_type',
+        default_value='3',  # 3 = MY_NEW_MODEL
+        description='Motion model type: 0=CONSTANT_VELOCITY, 1=CONSTANT_ACCELERATION, 2=ADAPTIVE_ACCEL_UKF, 3=MY_NEW_MODEL'
+    )
+
+    # KF node
+    kf_node = Node(
+        package='multi_target_kf',
+        executable='tracker_node',
+        name='kf_tracker_node',
+        namespace=namespace,
+        output='screen',
+        parameters=[
+            kf_yaml,
+            {'model_type': model_type}
+        ],
+        remappings=[('measurement/pose_array', detections_topic)]
+    )
+
+    ld = LaunchDescription()
+
+    ld.add_action(kf_yaml_launch_arg)
+    ld.add_action(detections_topic_launch_arg)
+    ld.add_action(namespace_launch_arg)
+    ld.add_action(model_type_launch_arg)
+    ld.add_action(kf_node)
+
+    return ld
+```
+
+#### Step 10: Update the Main README.md
+
+Update the README.md to document your model, including:
+- Description of the model
+- State variables
+- Model-specific parameters
+- Any special considerations or usage tips
+
+#### Step 11: Test Your Model
+
+1. Build the package with your new model:
+   ```bash
+   cd ~/ros2_ws
+   colcon build --packages-select multi_target_kf
+   source ~/ros2_ws/install/setup.bash
+   ```
+
+2. Launch the tracker with your model:
+   ```bash
+   ros2 launch multi_target_kf kf_my_model.launch.py
+   ```
+
+3. Launch RViz for visualization:
+   ```bash
+   ros2 launch multi_target_kf kf_rviz.launch.py model_type:=3
+   ```
+
 
 ## Testing
 

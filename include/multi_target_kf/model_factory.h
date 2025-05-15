@@ -4,14 +4,16 @@
 
 #include "multi_target_kf/motion_model.h"
 #include "multi_target_kf/constant_vel.h"
-#include "multi_target_kf/constant_accel.h" // Add this include
+#include "multi_target_kf/constant_accel.h"
+#include "multi_target_kf/ukf_adaptive_accel.h"
 
 /**
  * @brief Enumeration of available motion model types
  */
 enum ModelType {
     CONSTANT_VELOCITY = 0,
-    CONSTANT_ACCELERATION = 1, // Add this new model type
+    CONSTANT_ACCELERATION = 1,
+    ADAPTIVE_ACCEL_UKF = 2,
     // Add more model types here as they become available
 };
 
@@ -31,6 +33,8 @@ public:
                 return new ConstantVelModel();
             case CONSTANT_ACCELERATION:
                 return new ConstantAccelModel(); // Add this case
+            case ADAPTIVE_ACCEL_UKF:
+                return new AdaptiveAccelUKF();
             // Add more cases for future models
             default:
                 return nullptr;
@@ -47,7 +51,9 @@ public:
             case CONSTANT_VELOCITY:
                 return "Constant Velocity";
             case CONSTANT_ACCELERATION:
-                return "Constant Acceleration"; // Add this case
+                return "Constant Acceleration";
+            case ADAPTIVE_ACCEL_UKF:
+                return "Adaptive Acceleration UKF";
             // Add more cases for future models
             default:
                 return "Unknown Model";
