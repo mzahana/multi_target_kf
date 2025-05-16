@@ -90,7 +90,7 @@ void KFTracker::syncFieldsFromConfig()
    do_update_step_ = config_.do_update_step;
    measurement_off_time_ = config_.measurement_off_time;
    use_track_id_ = config_.use_track_id;
-   track_mesurement_timeout_ = config_.track_measurement_timeout;
+   track_measurement_timeout_ = config_.track_measurement_timeout;
    debug_ = config_.debug;
    sigma_a_ = config_.sigma_a;
    sigma_p_ = config_.sigma_p;
@@ -113,7 +113,7 @@ void KFTracker::syncConfigFromFields()
    config_.do_update_step = do_update_step_;
    config_.measurement_off_time = measurement_off_time_;
    config_.use_track_id = use_track_id_;
-   config_.track_measurement_timeout = track_mesurement_timeout_;
+   config_.track_measurement_timeout = track_measurement_timeout_;
    config_.debug = debug_;
    config_.sigma_a = sigma_a_;
    config_.sigma_p = sigma_p_;
@@ -373,6 +373,12 @@ void KFTracker::updateTracks(double t)
    if(tracks_.empty())
       return;
 
+   // Check if update step is disabled
+   if (!do_update_step_) {
+      printf("WARN [updateTracks] Update step is disabled via configuration. Skipping update step.\n");
+      return;
+   }
+
    measurement_set_mtx_.lock();
    auto z = measurement_set_;
    measurement_set_mtx_.unlock();
@@ -422,6 +428,16 @@ void KFTracker::updateTracks(double t)
 
       for(auto it_z=z.begin(); it_z != z.end(); it_z++){
          int z_idx = it_z - z.begin(); // measurement index
+
+         // If using track IDs and they don't match, assign very low likelihood
+         if (use_track_id_ && (*it_t).id != 0 && (*it_z).id != 0 && (*it_t).id != (*it_z).id) {
+            LL_mat(tr_idx, z_idx) = -9999.0;
+            if(debug_)
+               printf("[KFTracker::updateTracks] Track ID %u != Measurement ID %u. Setting low likelihood.\n", 
+                      (*it_t).id, (*it_z).id);
+            continue;
+         }
+
          // Use the motion model interface to compute log likelihood
          double LL = kf_model_->logLikelihood((*it_t).current_state, (*it_z));
          if ( (LL >= l_threshold_) && found_closest_state) LL_mat(tr_idx, z_idx) = LL;
@@ -578,7 +594,7 @@ void KFTracker::removeUncertainTracks(){
       }
 
       // Remove track if it has not received measurements for long time
-      if(abs((*it).current_state.time_stamp - (*it).last_measurement_time) > track_mesurement_timeout_)
+      if(abs((*it).current_state.time_stamp - (*it).last_measurement_time) > track_measurement_timeout_)
       {
          if(debug_) {
             printf("WARN [KFTracker::removeUncertainTracks] Track %d has not been updated for %f seconds. Removing it.\n", 

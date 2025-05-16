@@ -99,7 +99,7 @@ public:
    double sigma_p_;
    double sigma_v_;
    double sigma_j_; /* Standard deviation of jerk noise (for constant acceleration) - NEW */
-   double track_mesurement_timeout_;
+   double track_measurement_timeout_;
    bool debug_;
 
    std::vector<kf_track> tracks_;                     /**< Vector of current tracks. */

@@ -92,8 +92,8 @@ void TrackerROS::loadParameters()
    this->declare_parameter("use_track_id", config_.use_track_id);
    config_.use_track_id = this->get_parameter("use_track_id").get_parameter_value().get<bool>();
    
-   this->declare_parameter("track_mesurement_timeout", config_.track_measurement_timeout);
-   config_.track_measurement_timeout = this->get_parameter("track_mesurement_timeout").get_parameter_value().get<double>();
+   this->declare_parameter("track_measurement_timeout", config_.track_measurement_timeout);
+   config_.track_measurement_timeout = this->get_parameter("track_measurement_timeout").get_parameter_value().get<double>();
    
    // Model parameters
    this->declare_parameter("sigma_a", config_.sigma_a);
@@ -165,7 +165,7 @@ void TrackerROS::loadParameters()
         RCLCPP_INFO(this->get_logger(), "  sigma_p: %f", config_.sigma_p);
         RCLCPP_INFO(this->get_logger(), "  sigma_v: %f", config_.sigma_v);
         RCLCPP_INFO(this->get_logger(), "  sigma_j: %f", config_.sigma_j);
-        RCLCPP_INFO(this->get_logger(), "  track_mesurement_timeout: %f", config_.track_measurement_timeout);
+        RCLCPP_INFO(this->get_logger(), "  track_measurement_timeout: %f", config_.track_measurement_timeout);
 
         // Add UKF parameter logging if using UKF model
         if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
@@ -267,13 +267,17 @@ void TrackerROS::publishCertainTracks(void)
       track_msg.pose.pose.position.z = (*it).current_state.x[2];
 
       /* The following are model-dependent ! */
-      if (config_.model_type == CONSTANT_VELOCITY || config_.model_type == CONSTANT_ACCELERATION) {
+      if (config_.model_type == CONSTANT_VELOCITY || 
+          config_.model_type == CONSTANT_ACCELERATION || 
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
          track_msg.twist.twist.linear.x = (*it).current_state.x[3];
          track_msg.twist.twist.linear.y = (*it).current_state.x[4];
          track_msg.twist.twist.linear.z = (*it).current_state.x[5];
       }
       
-      if (config_.model_type == CONSTANT_ACCELERATION && (*it).current_state.x.size() >= 9) {
+      if ((config_.model_type == CONSTANT_ACCELERATION || 
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
+          (*it).current_state.x.size() >= 9) {
          track_msg.accel.accel.linear.x = (*it).current_state.x[6];
          track_msg.accel.accel.linear.y = (*it).current_state.x[7];
          track_msg.accel.accel.linear.z = (*it).current_state.x[8];
@@ -287,7 +291,9 @@ void TrackerROS::publishCertainTracks(void)
       }
 
       // Fill the TwistWithCovariance covariance (next 3x3 block for velocity)
-      if (config_.model_type == CONSTANT_VELOCITY || config_.model_type == CONSTANT_ACCELERATION) {
+      if (config_.model_type == CONSTANT_VELOCITY || 
+          config_.model_type == CONSTANT_ACCELERATION || 
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
          for (int i = 3; i < 6; ++i) {
             for (int j = 3; j < 6; ++j) {
                track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
@@ -296,7 +302,9 @@ void TrackerROS::publishCertainTracks(void)
       }
       
       // Fill the AccelWithCovariance covariance (next 3x3 block for acceleration)
-      if (config_.model_type == CONSTANT_ACCELERATION && (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
+      if ((config_.model_type == CONSTANT_ACCELERATION || 
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&    // Added UKF model
+          (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
          for (int i = 6; i < 9; ++i) {
             for (int j = 6; j < 9; ++j) {
                track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
@@ -347,13 +355,17 @@ void TrackerROS::publishAllTracks(void)
       track_msg.pose.pose.position.z = (*it).current_state.x[2];
 
       /* The following are model-dependent ! */
-      if (config_.model_type == CONSTANT_VELOCITY || config_.model_type == CONSTANT_ACCELERATION) {
+      if (config_.model_type == CONSTANT_VELOCITY || 
+          config_.model_type == CONSTANT_ACCELERATION || 
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
          track_msg.twist.twist.linear.x = (*it).current_state.x[3];
          track_msg.twist.twist.linear.y = (*it).current_state.x[4];
          track_msg.twist.twist.linear.z = (*it).current_state.x[5];
       }
       
-      if (config_.model_type == CONSTANT_ACCELERATION && (*it).current_state.x.size() >= 9) {
+      if ((config_.model_type == CONSTANT_ACCELERATION || 
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
+          (*it).current_state.x.size() >= 9) {
          track_msg.accel.accel.linear.x = (*it).current_state.x[6];
          track_msg.accel.accel.linear.y = (*it).current_state.x[7];
          track_msg.accel.accel.linear.z = (*it).current_state.x[8];
@@ -367,7 +379,9 @@ void TrackerROS::publishAllTracks(void)
       }
 
       // Fill the TwistWithCovariance covariance (next 3x3 block for velocity)
-      if (config_.model_type == CONSTANT_VELOCITY || config_.model_type == CONSTANT_ACCELERATION) {
+      if (config_.model_type == CONSTANT_VELOCITY || 
+          config_.model_type == CONSTANT_ACCELERATION || 
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
          for (int i = 3; i < 6; ++i) {
             for (int j = 3; j < 6; ++j) {
                track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
@@ -376,7 +390,9 @@ void TrackerROS::publishAllTracks(void)
       }
       
       // Fill the AccelWithCovariance covariance (next 3x3 block for acceleration)
-      if (config_.model_type == CONSTANT_ACCELERATION && (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
+      if ((config_.model_type == CONSTANT_ACCELERATION || 
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
+          (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
          for (int i = 6; i < 9; ++i) {
             for (int j = 6; j < 9; ++j) {
                track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
@@ -487,5 +503,22 @@ void TrackerROS::paramsTimerCallback()
    if (l_threshold != config_.l_threshold) {
       config_.l_threshold = l_threshold;
       kf_tracker_->l_threshold_ = l_threshold;
+   }
+   bool do_update_step = this->get_parameter("do_kf_update_step").as_bool();
+   if (do_update_step != config_.do_update_step) {
+      config_.do_update_step = do_update_step;
+      kf_tracker_->do_update_step_ = do_update_step;
+   }
+   
+   double track_measurement_timeout = this->get_parameter("track_measurement_timeout").as_double();
+   if (track_measurement_timeout != config_.track_measurement_timeout) {
+      config_.track_measurement_timeout = track_measurement_timeout;
+      kf_tracker_->track_measurement_timeout_ = track_measurement_timeout;
+   }
+   
+   bool use_track_id = this->get_parameter("use_track_id").as_bool();
+   if (use_track_id != config_.use_track_id) {
+      config_.use_track_id = use_track_id;
+      kf_tracker_->use_track_id_ = use_track_id;
    }
 }
