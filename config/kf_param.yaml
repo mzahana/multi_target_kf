@@ -18,7 +18,7 @@
     N_meas: 10                      # Minimum number of measurements to confirm a track
     l_threshold: -10.0              # Measurement association log-likelihood threshold
     dist_threshold: 5.0             # Maximum distance between a state & measurement to consider them as a match
-    track_mesurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain and removing it
+    track_measurement_timeout: 1.5   # Maximum time (seconds) from last measurement before considering a track uncertain and removing it
     
     # State estimation parameters
     sigma_a: 10.0    # Standard deviation of acceleration noise (for constant velocity model)
