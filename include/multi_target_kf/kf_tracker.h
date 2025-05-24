@@ -70,6 +70,7 @@ class KFTracker
 private:
    TrackerConfig config_;           /**< Configuration settings */
    HungarianAlgorithm HungAlgo_;    /**< Hungarian algorithm object for state-measurement assignment */
+   unsigned int next_track_id_;     /**< Counter for assigning unique track IDs when use_track_id is false */
 protected:
    MotionModel* kf_model_;          /**< Pointer to the motion model being used */
    std::mutex measurement_set_mtx_; /**< mutex to guard measurement_set_ from interfering calls */
@@ -206,6 +207,12 @@ public:
     * This is useful for backward compatibility when the configuration is modified
     */
    void syncFieldsFromConfig();
+
+   /**
+    * @brief Get the next available track ID
+    * @return Next unique track ID
+    */
+   unsigned int getNextTrackId();
 };
 
 #endif // KF_TRACKER_H

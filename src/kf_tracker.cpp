@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 KFTracker::KFTracker(const TrackerConfig& config) :
    config_(config),
    kf_model_(nullptr),
+   next_track_id_(1),
    last_prediction_t_(0.0),
    last_measurement_t_(0.0),
    is_state_initialzed_(false)
@@ -54,6 +55,7 @@ KFTracker::KFTracker(ModelType model_type) :
 {
    // Override the model type in the configuration
    config_.model_type = model_type;
+   next_track_id_ = 1;  // Start from ID 1
    
    // Clean up the default model
    if (kf_model_) {
@@ -75,6 +77,11 @@ KFTracker::~KFTracker()
       delete kf_model_;
       kf_model_ = nullptr;
    }
+}
+
+unsigned int KFTracker::getNextTrackId()
+{
+   return next_track_id_++;
 }
 
 void KFTracker::syncFieldsFromConfig()
@@ -297,8 +304,19 @@ void KFTracker::initTracks(void)
       track.current_state = state;
       track.last_measurement_time = state.time_stamp;
       track.buffer.push_back(state);
+      
+      // Assign track ID based on use_track_id setting
+      if (use_track_id_ && z[i].id != 0) {
+         track.id = z[i].id;  // Use measurement ID
+      } else {
+         track.id = getNextTrackId();  // Assign unique auto-generated ID
+      }
 
       tracks_.push_back(track);
+      
+      if(debug_){
+         printf("[KFTracker::initTracks] Initialized track with ID: %u\n", track.id);
+      }
    }
    if(debug_){
       printf("[KFTracker::initTracks] Initialized %lu tracks\n", tracks_.size());
@@ -555,15 +573,21 @@ void KFTracker::updateTracks(double t)
       state.P = kf_model_->Q(dt_pred_); // Use process noise for initial state uncertainty
       
       kf_track new_track;
-      new_track.id = z[m].id;
       new_track.current_state = state;
       new_track.n = 1;
       new_track.last_measurement_time = state.time_stamp;
       new_track.buffer.push_back(state);
+      
+      // Assign track ID based on use_track_id setting
+      if (use_track_id_ && z[m].id != 0) {
+         new_track.id = z[m].id;  // Use measurement ID
+      } else {
+         new_track.id = getNextTrackId();  // Assign unique auto-generated ID
+      }
 
       tracks_.push_back(new_track);
       if(debug_){
-         printf("WARN [KFTracker::updateTracks] New track is added using a non-assigned measurement of ID: %lu ******* \n ", m);
+         printf("[KFTracker::updateTracks] New track added with ID: %u using non-assigned measurement\n", new_track.id);
       }      
    }
 }// updateTracks DONE 
