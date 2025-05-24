@@ -10,6 +10,7 @@ def generate_launch_description():
     # Add argument for the path of the yaml file
     kf_yaml = LaunchConfiguration('kf_yaml')
     detections_topic = LaunchConfiguration('detections_topic')
+    measurement_topic = LaunchConfiguration('measurement_topic')
     namespace = LaunchConfiguration('kf_ns')
     model_type = LaunchConfiguration('model_type')
 
@@ -27,9 +28,15 @@ def generate_launch_description():
     )
 
     detections_topic_launch_arg = DeclareLaunchArgument(
-        'detections_topic',
+        ' detections_topic',
+        default_value='detections',
+        description='Topic for incoming measurements as custom detections message'
+    )
+    
+    measurement_topic_launch_arg = DeclareLaunchArgument(
+        ' measurement_topic',
         default_value='measurement/pose_array',
-        description='Topic for incoming measurements'
+        description='Topic for incoming measurements as pose array'
     )
 
     namespace_launch_arg = DeclareLaunchArgument(
@@ -55,13 +62,16 @@ def generate_launch_description():
             kf_yaml,
             {'model_type': model_type}
         ],
-        remappings=[('measurement/pose_array', detections_topic)]
+        remappings=[('detections', detections_topic),
+                    ('measurement/pose_array', measurement_topic)
+                    ]
     )
 
     ld = LaunchDescription()
 
     ld.add_action(kf_yaml_launch_arg)
     ld.add_action(detections_topic_launch_arg)
+    ld.add_action(measurement_topic_launch_arg)
     ld.add_action(namespace_launch_arg)
     ld.add_action(model_type_launch_arg)
     ld.add_action(kf_node)
