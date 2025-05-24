@@ -283,7 +283,8 @@ public:
     
     void predictMeasurement(const Eigen::VectorXd& x_pred, const Eigen::MatrixXd& P_pred,
                           Eigen::VectorXd& z_pred, Eigen::MatrixXd& S, Eigen::MatrixXd& Pxz) {
-        // Transform sigma points to measurement space
+        (void)P_pred; // Suppress unused parameter warning
+                            // Transform sigma points to measurement space
         Eigen::MatrixXd Z_pred = Eigen::MatrixXd::Zero(NUM_MEASUREMENTS, 2 * L_ + 1);
         for (unsigned int i = 0; i < 2 * L_ + 1; i++) {
             Z_pred.col(i) = h(sigma_points_.col(i));

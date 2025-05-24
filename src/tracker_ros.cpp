@@ -29,7 +29,7 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
       std::chrono::duration<double>(kf_tracker_->dt_pred_));
    
    kf_loop_timer_ = this->create_wall_timer(
-      duration_ms, std::bind(&TrackerROS::filterLoop, this)); // Define timer for constant loop rate
+      duration_ms, std::bind(&TrackerROS::filterLoop, this));
 
    params_timer_ = this->create_wall_timer(
       1000ms, std::bind(&TrackerROS::paramsTimerCallback, this));
@@ -38,11 +38,19 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
    pose_array_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
       "measurement/pose_array", 10, std::bind(&TrackerROS::poseArrayCallback, this, _1));
 
+   // Enhanced detections subscriber
+   detections_sub_ = this->create_subscription<multi_target_kf::msg::Detections>(
+      "detections", 10, std::bind(&TrackerROS::detectionsCallback, this, _1));
+
    // Define publishers
    good_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/good_tracks_pose_array", 10);
    all_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/all_tracks_pose_array", 10);
    good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/good_tracks", 10);
    all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/all_tracks", 10);
+   
+   // Enhanced publishers
+   enhanced_good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("enhanced/good_tracks", 10);
+   enhanced_all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("enhanced/all_tracks", 10);
 }
 
 void TrackerROS::loadParameters()
@@ -231,6 +239,115 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
    kf_tracker_->measurement_set_mtx_.unlock();
 }
 
+///////////////////////////
+void TrackerROS::detectionsCallback(const multi_target_kf::msg::Detections & msg)
+{
+   kf_tracker_->enhanced_measurement_set_mtx_.lock();
+   kf_tracker_->enhanced_measurement_set_.clear();
+   
+   // Also update basic measurement set for backward compatibility
+   kf_tracker_->measurement_set_mtx_.lock();
+   kf_tracker_->measurement_set_.clear();
+   kf_tracker_->measurement_set_mtx_.unlock();
+   
+   auto now = this->now().seconds();
+   
+   for (const auto& detection : msg.detections) {
+      enhanced_measurement enhanced_meas = convertFromDetectionMsg(detection);
+      enhanced_meas.time_stamp = now;
+      
+      kf_tracker_->enhanced_measurement_set_.push_back(enhanced_meas);
+      
+      // Convert to basic measurement for backward compatibility
+      sensor_measurement basic_meas = convertToBasicMeasurement(enhanced_meas);
+      kf_tracker_->measurement_set_mtx_.lock();
+      kf_tracker_->measurement_set_.push_back(basic_meas);
+      kf_tracker_->measurement_set_mtx_.unlock();
+   }
+   
+   kf_tracker_->enhanced_measurement_set_mtx_.unlock();
+   
+   if(kf_tracker_->debug_){
+      RCLCPP_INFO(this->get_logger(), "[detectionsCallback] Received %lu enhanced detections", msg.detections.size());
+   }
+}
+
+enhanced_measurement TrackerROS::convertFromDetectionMsg(const multi_target_kf::msg::Detection& detection_msg)
+{
+   enhanced_measurement meas;
+   
+   meas.id = detection_msg.id;
+   meas.class_name = detection_msg.class_name;
+   meas.confidence = detection_msg.confidence;
+   
+   // Position
+   meas.position = Eigen::VectorXd::Zero(3);
+   meas.position(0) = detection_msg.position.x;
+   meas.position(1) = detection_msg.position.y;
+   meas.position(2) = detection_msg.position.z;
+   
+   // Position covariance (diagonal)
+   meas.position_cov = Eigen::MatrixXd::Identity(3, 3);
+   meas.position_cov(0, 0) = detection_msg.position_covariance.x;
+   meas.position_cov(1, 1) = detection_msg.position_covariance.y;
+   meas.position_cov(2, 2) = detection_msg.position_covariance.z;
+   
+   // Linear velocity
+   meas.has_linear_velocity = (detection_msg.linear_velocity.x != 0.0 || 
+                              detection_msg.linear_velocity.y != 0.0 || 
+                              detection_msg.linear_velocity.z != 0.0);
+   if (meas.has_linear_velocity) {
+      meas.linear_velocity = Eigen::VectorXd::Zero(3);
+      meas.linear_velocity(0) = detection_msg.linear_velocity.x;
+      meas.linear_velocity(1) = detection_msg.linear_velocity.y;
+      meas.linear_velocity(2) = detection_msg.linear_velocity.z;
+   }
+   
+   // 2D Bounding box (YOLO format: already center + size)
+   meas.has_2d_bbox = detection_msg.has_2d_bbox;
+   if (meas.has_2d_bbox) {
+      meas.bbox_2d_center_x = detection_msg.bbox_2d_center_x;
+      meas.bbox_2d_center_y = detection_msg.bbox_2d_center_y;
+      meas.bbox_2d_width = detection_msg.bbox_2d_width;
+      meas.bbox_2d_height = detection_msg.bbox_2d_height;
+   }
+   
+   // 3D Bounding box
+   meas.has_3d_bbox = detection_msg.has_3d_bbox;
+   if (meas.has_3d_bbox) {
+      meas.bbox_3d_center = Eigen::Vector3d(
+         detection_msg.bbox_3d_center.x,
+         detection_msg.bbox_3d_center.y,
+         detection_msg.bbox_3d_center.z
+      );
+      meas.bbox_3d_size = Eigen::Vector3d(
+         detection_msg.bbox_3d_size.x,
+         detection_msg.bbox_3d_size.y,
+         detection_msg.bbox_3d_size.z
+      );
+      meas.bbox_3d_orientation = Eigen::Quaterniond(
+         detection_msg.bbox_3d_orientation.w,
+         detection_msg.bbox_3d_orientation.x,
+         detection_msg.bbox_3d_orientation.y,
+         detection_msg.bbox_3d_orientation.z
+      );
+   }
+   
+   meas.attributes = detection_msg.attributes;
+   
+   return meas;
+}
+
+sensor_measurement TrackerROS::convertToBasicMeasurement(const enhanced_measurement& enhanced)
+{
+   sensor_measurement basic;
+   basic.time_stamp = enhanced.time_stamp;
+   basic.id = enhanced.id;
+   basic.z = enhanced.position;
+   basic.R = enhanced.position_cov;
+   return basic;
+}
+
 void TrackerROS::publishCertainTracks(void)
 {
    if(kf_tracker_->certain_tracks_.empty()){
@@ -269,14 +386,14 @@ void TrackerROS::publishCertainTracks(void)
       /* The following are model-dependent ! */
       if (config_.model_type == CONSTANT_VELOCITY || 
           config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {
          track_msg.twist.twist.linear.x = (*it).current_state.x[3];
          track_msg.twist.twist.linear.y = (*it).current_state.x[4];
          track_msg.twist.twist.linear.z = (*it).current_state.x[5];
       }
       
       if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&
           (*it).current_state.x.size() >= 9) {
          track_msg.accel.accel.linear.x = (*it).current_state.x[6];
          track_msg.accel.accel.linear.y = (*it).current_state.x[7];
@@ -287,28 +404,6 @@ void TrackerROS::publishCertainTracks(void)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
-         }
-      }
-
-      // Fill the TwistWithCovariance covariance (next 3x3 block for velocity)
-      if (config_.model_type == CONSTANT_VELOCITY || 
-          config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
-         for (int i = 3; i < 6; ++i) {
-            for (int j = 3; j < 6; ++j) {
-               track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
-            }
-         }
-      }
-      
-      // Fill the AccelWithCovariance covariance (next 3x3 block for acceleration)
-      if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&    // Added UKF model
-          (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
-         for (int i = 6; i < 9; ++i) {
-            for (int j = 6; j < 9; ++j) {
-               track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
-            }
          }
       }
 
@@ -357,14 +452,14 @@ void TrackerROS::publishAllTracks(void)
       /* The following are model-dependent ! */
       if (config_.model_type == CONSTANT_VELOCITY || 
           config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {
          track_msg.twist.twist.linear.x = (*it).current_state.x[3];
          track_msg.twist.twist.linear.y = (*it).current_state.x[4];
          track_msg.twist.twist.linear.z = (*it).current_state.x[5];
       }
       
       if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&
           (*it).current_state.x.size() >= 9) {
          track_msg.accel.accel.linear.x = (*it).current_state.x[6];
          track_msg.accel.accel.linear.y = (*it).current_state.x[7];
@@ -378,28 +473,6 @@ void TrackerROS::publishAllTracks(void)
          }
       }
 
-      // Fill the TwistWithCovariance covariance (next 3x3 block for velocity)
-      if (config_.model_type == CONSTANT_VELOCITY || 
-          config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
-         for (int i = 3; i < 6; ++i) {
-            for (int j = 3; j < 6; ++j) {
-               track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
-            }
-         }
-      }
-      
-      // Fill the AccelWithCovariance covariance (next 3x3 block for acceleration)
-      if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
-          (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
-         for (int i = 6; i < 9; ++i) {
-            for (int j = 6; j < 9; ++j) {
-               track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
-            }
-         }
-      }
-
       tracks_msg.tracks.push_back(track_msg);
    }
 
@@ -407,18 +480,244 @@ void TrackerROS::publishAllTracks(void)
    all_tracks_pub_->publish(tracks_msg);
 }
 
+void TrackerROS::publishEnhancedCertainTracks(void)
+{
+   if(kf_tracker_->enhanced_certain_tracks_.empty()) {
+      return;
+   }
+   
+   multi_target_kf::msg::KFTracks tracks_msg;
+   tracks_msg.header.stamp = this->now();
+   tracks_msg.header.frame_id = kf_tracker_->tracking_frame_;
+   
+   for (const auto& track : kf_tracker_->enhanced_certain_tracks_) {
+      multi_target_kf::msg::KFTrack track_msg;
+      
+      // Fill basic track information
+      track_msg.header = tracks_msg.header;
+      track_msg.id = track.id;
+      track_msg.class_name = track.class_name;
+      track_msg.confidence = track.confidence;
+      track_msg.n = track.n;
+      track_msg.last_measurement_time = rclcpp::Time(static_cast<uint64_t>(track.last_measurement_time * 1e9));
+      
+      // Position
+      track_msg.pose.pose.position.x = track.current_state.x[0];
+      track_msg.pose.pose.position.y = track.current_state.x[1];
+      track_msg.pose.pose.position.z = track.current_state.x[2];
+      track_msg.pose.pose.orientation.w = 1.0;
+      
+      // Velocity (if available)
+      if (track.current_state.x.size() >= 6) {
+         track_msg.twist.twist.linear.x = track.current_state.x[3];
+         track_msg.twist.twist.linear.y = track.current_state.x[4];
+         track_msg.twist.twist.linear.z = track.current_state.x[5];
+      }
+      
+      // Acceleration (if available)
+      if (track.current_state.x.size() >= 9) {
+         track_msg.accel.accel.linear.x = track.current_state.x[6];
+         track_msg.accel.accel.linear.y = track.current_state.x[7];
+         track_msg.accel.accel.linear.z = track.current_state.x[8];
+      }
+      
+      // Fill covariances
+      for (int i = 0; i < 3; ++i) {
+         for (int j = 0; j < 3; ++j) {
+            track_msg.pose.covariance[i*6 + j] = track.current_state.P(i, j);
+         }
+      }
+      
+      if (track.current_state.x.size() >= 6) {
+         for (int i = 3; i < 6; ++i) {
+            for (int j = 3; j < 6; ++j) {
+               track_msg.twist.covariance[(i-3)*6 + (j-3)] = track.current_state.P(i, j);
+            }
+         }
+      }
+      
+      if (track.current_state.x.size() >= 9) {
+         for (int i = 6; i < 9; ++i) {
+            for (int j = 6; j < 9; ++j) {
+               track_msg.accel.covariance[(i-6)*6 + (j-6)] = track.current_state.P(i, j);
+            }
+         }
+      }
+      
+      // 2D Bounding box (YOLO format)
+      track_msg.has_2d_bbox = track.has_2d_bbox;
+      if (track.has_2d_bbox) {
+         track_msg.bbox_2d_center_x = track.bbox_2d_center_x;
+         track_msg.bbox_2d_center_y = track.bbox_2d_center_y;
+         track_msg.bbox_2d_width = track.bbox_2d_width;
+         track_msg.bbox_2d_height = track.bbox_2d_height;
+      }
+      
+      // 3D Bounding box
+      track_msg.has_3d_bbox = track.has_3d_bbox;
+      if (track.has_3d_bbox) {
+         track_msg.bbox_3d_center.x = track.bbox_3d_center.x();
+         track_msg.bbox_3d_center.y = track.bbox_3d_center.y();
+         track_msg.bbox_3d_center.z = track.bbox_3d_center.z();
+         track_msg.bbox_3d_size.x = track.bbox_3d_size.x();
+         track_msg.bbox_3d_size.y = track.bbox_3d_size.y();
+         track_msg.bbox_3d_size.z = track.bbox_3d_size.z();
+         track_msg.bbox_3d_orientation.w = track.bbox_3d_orientation.w();
+         track_msg.bbox_3d_orientation.x = track.bbox_3d_orientation.x();
+         track_msg.bbox_3d_orientation.y = track.bbox_3d_orientation.y();
+         track_msg.bbox_3d_orientation.z = track.bbox_3d_orientation.z();
+      }
+      
+      // Track quality
+      track_msg.track_score = track.track_score;
+      auto P_p = track.current_state.P.block(0,0,3,3);
+      track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
+      
+      track_msg.attributes = track.attributes;
+      
+      tracks_msg.tracks.push_back(track_msg);
+   }
+   
+   enhanced_good_tracks_pub_->publish(tracks_msg);
+}
+
+void TrackerROS::publishEnhancedAllTracks(void)
+{
+   if(kf_tracker_->enhanced_tracks_.empty()) {
+      return;
+   }
+   
+   multi_target_kf::msg::KFTracks tracks_msg;
+   tracks_msg.header.stamp = this->now();
+   tracks_msg.header.frame_id = kf_tracker_->tracking_frame_;
+   
+   for (const auto& track : kf_tracker_->enhanced_tracks_) {
+      multi_target_kf::msg::KFTrack track_msg;
+      
+      // Fill basic track information
+      track_msg.header = tracks_msg.header;
+      track_msg.id = track.id;
+      track_msg.class_name = track.class_name;
+      track_msg.confidence = track.confidence;
+      track_msg.n = track.n;
+      track_msg.last_measurement_time = rclcpp::Time(static_cast<uint64_t>(track.last_measurement_time * 1e9));
+      
+      // Position
+      track_msg.pose.pose.position.x = track.current_state.x[0];
+      track_msg.pose.pose.position.y = track.current_state.x[1];
+      track_msg.pose.pose.position.z = track.current_state.x[2];
+      track_msg.pose.pose.orientation.w = 1.0;
+      
+      // Velocity (if available)
+      if (track.current_state.x.size() >= 6) {
+         track_msg.twist.twist.linear.x = track.current_state.x[3];
+         track_msg.twist.twist.linear.y = track.current_state.x[4];
+         track_msg.twist.twist.linear.z = track.current_state.x[5];
+      }
+      
+      // Acceleration (if available)
+      if (track.current_state.x.size() >= 9) {
+         track_msg.accel.accel.linear.x = track.current_state.x[6];
+         track_msg.accel.accel.linear.y = track.current_state.x[7];
+         track_msg.accel.accel.linear.z = track.current_state.x[8];
+      }
+      
+      // Fill covariances
+      for (int i = 0; i < 3; ++i) {
+         for (int j = 0; j < 3; ++j) {
+            track_msg.pose.covariance[i*6 + j] = track.current_state.P(i, j);
+         }
+      }
+      
+      if (track.current_state.x.size() >= 6) {
+         for (int i = 3; i < 6; ++i) {
+            for (int j = 3; j < 6; ++j) {
+               track_msg.twist.covariance[(i-3)*6 + (j-3)] = track.current_state.P(i, j);
+            }
+         }
+      }
+      
+      if (track.current_state.x.size() >= 9) {
+         for (int i = 6; i < 9; ++i) {
+            for (int j = 6; j < 9; ++j) {
+               track_msg.accel.covariance[(i-6)*6 + (j-6)] = track.current_state.P(i, j);
+            }
+         }
+      }
+      
+      // 2D Bounding box (YOLO format)
+      track_msg.has_2d_bbox = track.has_2d_bbox;
+      if (track.has_2d_bbox) {
+         track_msg.bbox_2d_center_x = track.bbox_2d_center_x;
+         track_msg.bbox_2d_center_y = track.bbox_2d_center_y;
+         track_msg.bbox_2d_width = track.bbox_2d_width;
+         track_msg.bbox_2d_height = track.bbox_2d_height;
+      }
+      
+      // 3D Bounding box
+      track_msg.has_3d_bbox = track.has_3d_bbox;
+      if (track.has_3d_bbox) {
+         track_msg.bbox_3d_center.x = track.bbox_3d_center.x();
+         track_msg.bbox_3d_center.y = track.bbox_3d_center.y();
+         track_msg.bbox_3d_center.z = track.bbox_3d_center.z();
+         track_msg.bbox_3d_size.x = track.bbox_3d_size.x();
+         track_msg.bbox_3d_size.y = track.bbox_3d_size.y();
+         track_msg.bbox_3d_size.z = track.bbox_3d_size.z();
+         track_msg.bbox_3d_orientation.w = track.bbox_3d_orientation.w();
+         track_msg.bbox_3d_orientation.x = track.bbox_3d_orientation.x();
+         track_msg.bbox_3d_orientation.y = track.bbox_3d_orientation.y();
+         track_msg.bbox_3d_orientation.z = track.bbox_3d_orientation.z();
+      }
+      
+      // Track quality
+      track_msg.track_score = track.track_score;
+      auto P_p = track.current_state.P.block(0,0,3,3);
+      track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
+      
+      track_msg.attributes = track.attributes;
+      
+      tracks_msg.tracks.push_back(track_msg);
+   }
+   
+   enhanced_all_tracks_pub_->publish(tracks_msg);
+}
+////////////////////////////////////////////
+
+
+///////////////////////////////////////////
+
 void TrackerROS::filterLoop(void)
 {
    if(kf_tracker_->debug_)
       RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
 
+   // Run the basic filter loop
    kf_tracker_->filterLoop(this->now().seconds());
 
-   // Publish all available tracks
-   publishAllTracks();
+   // Handle enhanced tracking if we have enhanced measurements
+   if (!kf_tracker_->enhanced_measurement_set_.empty()) {
+      if (kf_tracker_->enhanced_tracks_.empty()) {
+         kf_tracker_->initEnhancedTracks();
+      } else {
+         // For now, we'll use the basic tracking and convert to enhanced
+         // In a full implementation, you'd have separate enhanced tracking logic
+         kf_tracker_->enhanced_tracks_.clear();
+         for (const auto& basic_track : kf_tracker_->tracks_) {
+            enhanced_kf_track enhanced_track = kf_tracker_->convertToEnhancedTrack(basic_track);
+            kf_tracker_->enhanced_tracks_.push_back(enhanced_track);
+         }
+      }
+      
+      kf_tracker_->updateEnhancedCertainTracks();
+   }
 
-   // Publish state estimates of good tracks
+   // Publish basic tracks (backward compatibility)
+   publishAllTracks();
    publishCertainTracks();
+   
+   // Publish enhanced tracks
+   publishEnhancedAllTracks();
+   publishEnhancedCertainTracks();
 }
 
 void TrackerROS::paramsTimerCallback()

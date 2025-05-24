@@ -61,6 +61,46 @@ struct kf_track
    double last_measurement_time;
 };
 
+/**
+ * Enhanced track structure for object detection and tracking
+ */
+struct enhanced_kf_track
+{
+   unsigned int id;                    /**< Unique track ID */
+   std::string class_name;             /**< Object class */
+   double confidence;                  /**< Average confidence */
+   std::string frame_id;
+   kf_state current_state;
+   std::vector<kf_state> buffer;
+   unsigned int n;                     /**< Number of received measurements */
+   double last_measurement_time;
+   double track_score;                 /**< Track quality score */
+   
+   // 2D Bounding box information (YOLO format: center + size)
+   bool has_2d_bbox;
+   double bbox_2d_center_x, bbox_2d_center_y, bbox_2d_width, bbox_2d_height;
+   
+   // 3D Bounding box information (center + size + orientation)
+   bool has_3d_bbox;
+   Eigen::Vector3d bbox_3d_center;
+   Eigen::Vector3d bbox_3d_size;
+   Eigen::Quaterniond bbox_3d_orientation;
+   
+   std::vector<std::string> attributes;
+   
+  // Constructor
+   enhanced_kf_track() :
+      id(0), confidence(0.0), n(0), last_measurement_time(0.0), track_score(0.0),
+      has_2d_bbox(false), bbox_2d_center_x(0.0), bbox_2d_center_y(0.0), bbox_2d_width(0.0), bbox_2d_height(0.0),
+      has_3d_bbox(false) {}
+   
+   // Helper function to get 2D bbox in top-left format (if needed for visualization)
+   void get2DBboxTopLeft(double& top_left_x, double& top_left_y) const {
+      top_left_x = bbox_2d_center_x - bbox_2d_width / 2.0;
+      top_left_y = bbox_2d_center_y - bbox_2d_height / 2.0;
+   }
+};
+
 //* KFTracker class
 /**
  * Implements a Kalman-filter-based object tracker based on various motion models
@@ -74,6 +114,7 @@ private:
 protected:
    MotionModel* kf_model_;          /**< Pointer to the motion model being used */
    std::mutex measurement_set_mtx_; /**< mutex to guard measurement_set_ from interfering calls */
+   std::mutex enhanced_measurement_set_mtx_;                    /**< Mutex for enhanced measurements */
 public:
    // Add a friend declaration for TrackerROS
    friend class TrackerROS;
@@ -106,6 +147,9 @@ public:
    std::vector<kf_track> tracks_;                     /**< Vector of current tracks. */
    std::vector<kf_track> certain_tracks_;             /**< Vector of certain tracks only. */
    std::vector<sensor_measurement> measurement_set_;  /**< set of all measurements. */
+   std::vector<enhanced_measurement> enhanced_measurement_set_;  /**< Enhanced measurements */
+   std::vector<enhanced_kf_track> enhanced_tracks_;             /**< Enhanced tracks */
+   std::vector<enhanced_kf_track> enhanced_certain_tracks_;     /**< Enhanced certain tracks */
    kf_state kf_state_pred_;                           /**< KF predicted state and covariance */
    std::vector<kf_state> state_buffer_;               /**< Buffer to store last state_buffer_size_ predicted x and P */
 
@@ -213,6 +257,12 @@ public:
     * @return Next unique track ID
     */
    unsigned int getNextTrackId();
+
+   // Methods for enhanced tracking
+   void initEnhancedTracks(void);
+   void updateEnhancedTracks(double t);
+   void updateEnhancedCertainTracks(void);
+   enhanced_kf_track convertToEnhancedTrack(const kf_track& basic_track);
 };
 
 #endif // KF_TRACKER_H

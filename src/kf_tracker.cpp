@@ -34,8 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 KFTracker::KFTracker(const TrackerConfig& config) :
    config_(config),
-   kf_model_(nullptr),
    next_track_id_(1),
+   kf_model_(nullptr),
    last_prediction_t_(0.0),
    last_measurement_t_(0.0),
    is_state_initialzed_(false)
@@ -659,6 +659,153 @@ void KFTracker::updateCertainTracks(void)
          }
       }
    }
+}
+
+void KFTracker::initEnhancedTracks(void)
+{
+   // Clear all enhanced tracks
+   enhanced_tracks_.clear();
+   enhanced_certain_tracks_.clear();
+
+   enhanced_measurement_set_mtx_.lock();
+   auto z = enhanced_measurement_set_;
+   enhanced_measurement_set_mtx_.unlock();
+
+   if(z.empty())
+   {
+      if(debug_){
+         printf("WARN [initEnhancedTracks] No available enhanced measurements. Track initialization is skipped.\n");
+      }
+      return;
+   }
+
+   if(z[0].time_stamp <= last_measurement_t_)
+   {
+      if(debug_){
+         printf("WARN [initEnhancedTracks] No new enhanced measurements. Track initialization is skipped.\n");
+      }
+      return;
+   }
+
+   if(debug_)
+      printf("[KFTracker::initEnhancedTracks] Initializing enhanced tracks...\n");
+
+   last_measurement_t_ = z[0].time_stamp;
+
+   for (size_t i = 0; i < z.size(); i++)
+   {
+      // Convert enhanced measurement to basic measurement for KF
+      sensor_measurement basic_meas;
+      basic_meas.time_stamp = z[i].time_stamp;
+      basic_meas.id = z[i].id;
+      basic_meas.z = z[i].position;
+      basic_meas.R = z[i].position_cov;
+      
+      // Initialize state using motion model
+      kf_state state = kf_model_->initStateFromMeasurements(basic_meas);
+      
+      enhanced_kf_track track;
+      track.n = 1;
+      track.current_state = state;
+      track.last_measurement_time = state.time_stamp;
+      track.buffer.push_back(state);
+      track.class_name = z[i].class_name;
+      track.confidence = z[i].confidence;
+      track.track_score = z[i].confidence; // Initial track score
+      
+      // Copy bounding box information
+      track.has_2d_bbox = z[i].has_2d_bbox;
+      if (track.has_2d_bbox) {
+         track.bbox_2d_center_x = z[i].bbox_2d_center_x;
+         track.bbox_2d_center_y = z[i].bbox_2d_center_y;
+         track.bbox_2d_width = z[i].bbox_2d_width;
+         track.bbox_2d_height = z[i].bbox_2d_height;
+      }
+      
+      track.has_3d_bbox = z[i].has_3d_bbox;
+      if (track.has_3d_bbox) {
+         track.bbox_3d_center = z[i].bbox_3d_center;
+         track.bbox_3d_size = z[i].bbox_3d_size;
+         track.bbox_3d_orientation = z[i].bbox_3d_orientation;
+      }
+      
+      // Check if attributes member exists and copy it
+      if (!z[i].attributes.empty()) {
+         track.attributes = z[i].attributes;
+      }
+      
+      // Assign track ID
+      if (use_track_id_ && z[i].id != 0) {
+         track.id = z[i].id;
+      } else {
+         track.id = getNextTrackId();
+      }
+
+      enhanced_tracks_.push_back(track);
+      
+      if(debug_){
+         printf("[KFTracker::initEnhancedTracks] Initialized enhanced track with ID: %u, class: %s\n", 
+                track.id, track.class_name.c_str());
+      }
+   }
+   
+   if(debug_){
+      printf("[KFTracker::initEnhancedTracks] Initialized %lu enhanced tracks\n", enhanced_tracks_.size());
+   }
+}
+
+void KFTracker::updateEnhancedCertainTracks(void)
+{
+   if(debug_){
+      printf("[KFTracker::updateEnhancedCertainTracks] Number of available enhanced tracks = %lu \n", enhanced_tracks_.size());
+   }
+
+   enhanced_certain_tracks_.clear();
+   if(enhanced_tracks_.empty())
+      return;
+
+   for (auto it = enhanced_tracks_.begin(); it != enhanced_tracks_.end(); it++)
+   {
+      int i = it - enhanced_tracks_.begin();
+      // Calculate uncertainty of this track
+      auto P_p = (*it).current_state.P.block(0,0,3,3);
+      auto V = sqrt(std::fabs(P_p.determinant()));
+      
+      if(debug_)
+         printf("[KFTracker::updateEnhancedCertainTracks] Enhanced track %d uncertainty = %f. number of measurements %d.\n", i, V, (*it).n);
+      
+      // If certainty is acceptable, add it to enhanced_certain_tracks_
+      if (V <= V_certain_ && (*it).n >= (unsigned int)N_meas_)
+      {
+         enhanced_certain_tracks_.push_back((*it));
+      }
+      else
+      {
+         if(debug_){
+            printf("WARN Enhanced track is not considered certain. V = %f, N = %d \n", V, (*it).n);
+         }
+      }
+   }
+}
+
+enhanced_kf_track KFTracker::convertToEnhancedTrack(const kf_track& basic_track)
+{
+   enhanced_kf_track enhanced;
+   enhanced.id = basic_track.id;
+   enhanced.current_state = basic_track.current_state;
+   enhanced.buffer = basic_track.buffer;
+   enhanced.n = basic_track.n;
+   enhanced.last_measurement_time = basic_track.last_measurement_time;
+   enhanced.frame_id = basic_track.frame_id;
+   
+   // Set default values for enhanced fields
+   enhanced.class_name = "unknown";
+   enhanced.confidence = 0.5;
+   enhanced.track_score = 0.5;
+   enhanced.has_2d_bbox = false;
+   enhanced.has_3d_bbox = false;
+   
+   return enhanced;
 }
 
 /**

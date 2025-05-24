@@ -13,6 +13,8 @@
 #include "multi_target_kf/msg/kf_track.hpp"
 #include "multi_target_kf/msg/kf_tracks.hpp"
 #include "multi_target_kf/kf_tracker.h"
+#include "multi_target_kf/msg/detection.hpp"
+#include "multi_target_kf/msg/detections.hpp"
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
@@ -49,6 +51,11 @@ private:
    
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_sub_;        /**< Subscriber to measurments. */
 
+    // Enhanced detection support
+    rclcpp::Subscription<multi_target_kf::msg::Detections>::SharedPtr detections_sub_;
+    rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr enhanced_good_tracks_pub_;
+    rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr enhanced_all_tracks_pub_;
+
     /**
      * @brief Load parameters from ROS parameter server
      */
@@ -80,6 +87,27 @@ private:
      * @brief Parameters timer's callback to update parameters from ROS parameter server
      */
     void paramsTimerCallback(void);
+
+    /**
+     * @brief Enhanced detections callback
+     */
+    void detectionsCallback(const multi_target_kf::msg::Detections & msg);
+    
+    /**
+     * @brief Publish enhanced tracks
+     */
+    void publishEnhancedCertainTracks(void);
+    void publishEnhancedAllTracks(void);
+    
+    /**
+     * @brief Convert enhanced_measurement to sensor_measurement
+     */
+    sensor_measurement convertToBasicMeasurement(const enhanced_measurement& enhanced);
+    
+    /**
+     * @brief Convert Detection message to enhanced_measurement
+     */
+    enhanced_measurement convertFromDetectionMsg(const multi_target_kf::msg::Detection& detection_msg);
 };
 
 #endif // TRACKER_ROS_H
