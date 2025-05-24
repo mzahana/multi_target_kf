@@ -28,13 +28,13 @@ def generate_launch_description():
     )
 
     detections_topic_launch_arg = DeclareLaunchArgument(
-        ' detections_topic',
+        'detections_topic',
         default_value='detections',
         description='Topic for incoming measurements as custom detections message'
     )
     
     measurement_topic_launch_arg = DeclareLaunchArgument(
-        ' measurement_topic',
+        'measurement_topic',
         default_value='measurement/pose_array',
         description='Topic for incoming measurements as pose array'
     )
