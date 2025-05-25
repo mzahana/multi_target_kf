@@ -38,19 +38,17 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
    pose_array_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
       "measurement/pose_array", 10, std::bind(&TrackerROS::poseArrayCallback, this, _1));
 
-   // Enhanced detections subscriber
+   // Detections subscriber
    detections_sub_ = this->create_subscription<multi_target_kf::msg::Detections>(
       "detections", 10, std::bind(&TrackerROS::detectionsCallback, this, _1));
 
-   // Define publishers
+   // Define publishers (unified tracks contain all information now)
    good_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/good_tracks_pose_array", 10);
    all_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/all_tracks_pose_array", 10);
    good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/good_tracks", 10);
    all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/all_tracks", 10);
    
-   // Enhanced publishers
-   enhanced_good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("enhanced/good_tracks", 10);
-   enhanced_all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("enhanced/all_tracks", 10);
+   // Remove enhanced publishers - unified approach now
 }
 
 void TrackerROS::loadParameters()
@@ -193,14 +191,15 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
 {
    kf_tracker_->measurement_set_mtx_.lock();
    kf_tracker_->measurement_set_.clear();
+   // Clear detection set since we're using basic measurements
+   kf_tracker_->detection_set_.clear();
    kf_tracker_->measurement_set_mtx_.unlock();
    
    // Sanity check
    if(msg.poses.empty())
    {
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: No measurements received.");
-
+         RCLCPP_WARN(this->get_logger(), "[poseArrayCallback]: No measurements received.");
       return;
    }
 
@@ -212,7 +211,7 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
       
       z.time_stamp = now;
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: Measurement time = %f.", z.time_stamp);
+         RCLCPP_WARN(this->get_logger(), "[poseArrayCallback]: Measurement time = %f.", z.time_stamp);
       
       z.id = 0;
       z.z = Eigen::MatrixXd::Zero(3,1); // 3, because it's always position only, for now!
@@ -239,36 +238,38 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
    kf_tracker_->measurement_set_mtx_.unlock();
 }
 
-///////////////////////////
 void TrackerROS::detectionsCallback(const multi_target_kf::msg::Detections & msg)
 {
-   kf_tracker_->enhanced_measurement_set_mtx_.lock();
-   kf_tracker_->enhanced_measurement_set_.clear();
-   
-   // Also update basic measurement set for backward compatibility
    kf_tracker_->measurement_set_mtx_.lock();
+   // Clear both measurement sets
+   kf_tracker_->detection_set_.clear();
    kf_tracker_->measurement_set_.clear();
    kf_tracker_->measurement_set_mtx_.unlock();
    
-   auto now = this->now().seconds();
-   
-   for (const auto& detection : msg.detections) {
-      enhanced_measurement enhanced_meas = convertFromDetectionMsg(detection);
-      enhanced_meas.time_stamp = now;
-      
-      kf_tracker_->enhanced_measurement_set_.push_back(enhanced_meas);
-      
-      // Convert to basic measurement for backward compatibility
-      sensor_measurement basic_meas = convertToBasicMeasurement(enhanced_meas);
-      kf_tracker_->measurement_set_mtx_.lock();
-      kf_tracker_->measurement_set_.push_back(basic_meas);
-      kf_tracker_->measurement_set_mtx_.unlock();
+   if(msg.detections.empty())
+   {
+      if(kf_tracker_->debug_)
+         RCLCPP_WARN(this->get_logger(), "[detectionsCallback]: No detections received.");
+      return;
    }
    
-   kf_tracker_->enhanced_measurement_set_mtx_.unlock();
+   auto now = this->now().seconds();
+   
+   kf_tracker_->measurement_set_mtx_.lock();
+   for (const auto& detection : msg.detections) {
+      enhanced_measurement det = convertFromDetectionMsg(detection);
+      det.time_stamp = now;
+      
+      kf_tracker_->detection_set_.push_back(det);
+      
+      // Also add to basic measurements for backward compatibility
+      sensor_measurement basic_meas = convertToBasicMeasurement(det);
+      kf_tracker_->measurement_set_.push_back(basic_meas);
+   }
+   kf_tracker_->measurement_set_mtx_.unlock();
    
    if(kf_tracker_->debug_){
-      RCLCPP_INFO(this->get_logger(), "[detectionsCallback] Received %lu enhanced detections", msg.detections.size());
+      RCLCPP_INFO(this->get_logger(), "[detectionsCallback] Received %lu detections", msg.detections.size());
    }
 }
 
@@ -352,7 +353,7 @@ void TrackerROS::publishCertainTracks(void)
 {
    if(kf_tracker_->certain_tracks_.empty()){
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
+         RCLCPP_WARN(this->get_logger(), "[publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
       return;
    }
 
@@ -378,10 +379,16 @@ void TrackerROS::publishCertainTracks(void)
       track_msg.header.frame_id = kf_tracker_->tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
+      
+      // Add unified track fields
+      track_msg.class_name = (*it).class_name;
+      track_msg.confidence = (*it).confidence;
+      track_msg.track_score = (*it).track_score;
 
       track_msg.pose.pose.position.x = (*it).current_state.x[0];
       track_msg.pose.pose.position.y = (*it).current_state.x[1];
       track_msg.pose.pose.position.z = (*it).current_state.x[2];
+      track_msg.pose.pose.orientation.w = 1.0;
 
       /* The following are model-dependent ! */
       if (config_.model_type == CONSTANT_VELOCITY || 
@@ -400,12 +407,68 @@ void TrackerROS::publishCertainTracks(void)
          track_msg.accel.accel.linear.z = (*it).current_state.x[8];
       }
 
-      // Fill the PoseWithCovariance covariance (first 3x3 block)
+      // Fill the PoseWithCovariance covariance (first 3x3 block for position)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
          }
       }
+
+      // Fill velocity covariance if available
+      if (config_.model_type == CONSTANT_VELOCITY || 
+         config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) {
+         
+         if ((*it).current_state.x.size() >= 6) {
+            for (int i = 3; i < 6; ++i) {
+               for (int j = 3; j < 6; ++j) {
+                  track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+               }
+            }
+         }
+      }
+
+      // Fill acceleration covariance if available
+      if ((config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) &&
+         (*it).current_state.x.size() >= 9) {
+         
+         for (int i = 6; i < 9; ++i) {
+            for (int j = 6; j < 9; ++j) {
+               track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
+            }
+         }
+      }
+      
+      // 2D Bounding box
+      track_msg.has_2d_bbox = (*it).has_2d_bbox;
+      if ((*it).has_2d_bbox) {
+         track_msg.bbox_2d_center_x = (*it).bbox_2d_center_x;
+         track_msg.bbox_2d_center_y = (*it).bbox_2d_center_y;
+         track_msg.bbox_2d_width = (*it).bbox_2d_width;
+         track_msg.bbox_2d_height = (*it).bbox_2d_height;
+      }
+      
+      // 3D Bounding box
+      track_msg.has_3d_bbox = (*it).has_3d_bbox;
+      if ((*it).has_3d_bbox) {
+         track_msg.bbox_3d_center.x = (*it).bbox_3d_center.x();
+         track_msg.bbox_3d_center.y = (*it).bbox_3d_center.y();
+         track_msg.bbox_3d_center.z = (*it).bbox_3d_center.z();
+         track_msg.bbox_3d_size.x = (*it).bbox_3d_size.x();
+         track_msg.bbox_3d_size.y = (*it).bbox_3d_size.y();
+         track_msg.bbox_3d_size.z = (*it).bbox_3d_size.z();
+         track_msg.bbox_3d_orientation.w = (*it).bbox_3d_orientation.w();
+         track_msg.bbox_3d_orientation.x = (*it).bbox_3d_orientation.x();
+         track_msg.bbox_3d_orientation.y = (*it).bbox_3d_orientation.y();
+         track_msg.bbox_3d_orientation.z = (*it).bbox_3d_orientation.z();
+      }
+      
+      // Track quality
+      auto P_p = (*it).current_state.P.block(0,0,3,3);
+      track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
+      
+      track_msg.attributes = (*it).attributes;
 
       tracks_msg.tracks.push_back(track_msg);
    }
@@ -418,7 +481,7 @@ void TrackerROS::publishAllTracks(void)
 {
    if(kf_tracker_->tracks_.empty()){
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::publishAllTracks] tracks_ is empty. No tracks to publish");
+         RCLCPP_WARN(this->get_logger(), "[publishAllTracks] tracks_ is empty. No tracks to publish");
       return;
    }
 
@@ -433,391 +496,226 @@ void TrackerROS::publishAllTracks(void)
 
    for (auto it = kf_tracker_->tracks_.begin(); it != kf_tracker_->tracks_.end(); it++)
    {
-      pose.position.x = (*it).current_state.x[0];
-      pose.position.y = (*it).current_state.x[1];
-      pose.position.z = (*it).current_state.x[2];
-      pose.orientation.w = 1.0;
+     pose.position.x = (*it).current_state.x[0];
+     pose.position.y = (*it).current_state.x[1];
+     pose.position.z = (*it).current_state.x[2];
+     pose.orientation.w = 1.0;
 
-      pose_array.poses.push_back(pose);
+     pose_array.poses.push_back(pose);
 
-      track_msg.header.stamp = rclcpp::Time(static_cast<uint64_t>((*it).current_state.time_stamp*1e9));
-      track_msg.header.frame_id = kf_tracker_->tracking_frame_;
-      track_msg.id = (*it).id;
-      track_msg.n = (*it).n;
+     track_msg.header.stamp = rclcpp::Time(static_cast<uint64_t>((*it).current_state.time_stamp*1e9));
+     track_msg.header.frame_id = kf_tracker_->tracking_frame_;
+     track_msg.id = (*it).id;
+     track_msg.n = (*it).n;
+     
+     // Add unified track fields
+     track_msg.class_name = (*it).class_name;
+     track_msg.confidence = (*it).confidence;
+     track_msg.track_score = (*it).track_score;
 
-      track_msg.pose.pose.position.x = (*it).current_state.x[0];
-      track_msg.pose.pose.position.y = (*it).current_state.x[1];
-      track_msg.pose.pose.position.z = (*it).current_state.x[2];
+     track_msg.pose.pose.position.x = (*it).current_state.x[0];
+     track_msg.pose.pose.position.y = (*it).current_state.x[1];
+     track_msg.pose.pose.position.z = (*it).current_state.x[2];
+     track_msg.pose.pose.orientation.w = 1.0;
 
-      /* The following are model-dependent ! */
-      if (config_.model_type == CONSTANT_VELOCITY || 
-          config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {
-         track_msg.twist.twist.linear.x = (*it).current_state.x[3];
-         track_msg.twist.twist.linear.y = (*it).current_state.x[4];
-         track_msg.twist.twist.linear.z = (*it).current_state.x[5];
-      }
-      
-      if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&
-          (*it).current_state.x.size() >= 9) {
-         track_msg.accel.accel.linear.x = (*it).current_state.x[6];
-         track_msg.accel.accel.linear.y = (*it).current_state.x[7];
-         track_msg.accel.accel.linear.z = (*it).current_state.x[8];
-      }
+     /* The following are model-dependent ! */
+     if (config_.model_type == CONSTANT_VELOCITY || 
+         config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) {
+        track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+        track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+        track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+     }
+     
+     if ((config_.model_type == CONSTANT_ACCELERATION || 
+          config_.model_type == ADAPTIVE_ACCEL_UKF) &&
+         (*it).current_state.x.size() >= 9) {
+        track_msg.accel.accel.linear.x = (*it).current_state.x[6];
+        track_msg.accel.accel.linear.y = (*it).current_state.x[7];
+        track_msg.accel.accel.linear.z = (*it).current_state.x[8];
+     }
 
-      // Fill the PoseWithCovariance covariance (first 3x3 block)
+     // Fill the PoseWithCovariance covariance (first 3x3 block for position)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
          }
       }
 
-      tracks_msg.tracks.push_back(track_msg);
-   }
-
-   all_poses_pub_->publish(pose_array);
-   all_tracks_pub_->publish(tracks_msg);
-}
-
-void TrackerROS::publishEnhancedCertainTracks(void)
-{
-   if(kf_tracker_->enhanced_certain_tracks_.empty()) {
-      return;
-   }
-   
-   multi_target_kf::msg::KFTracks tracks_msg;
-   tracks_msg.header.stamp = this->now();
-   tracks_msg.header.frame_id = kf_tracker_->tracking_frame_;
-   
-   for (const auto& track : kf_tracker_->enhanced_certain_tracks_) {
-      multi_target_kf::msg::KFTrack track_msg;
-      
-      // Fill basic track information
-      track_msg.header = tracks_msg.header;
-      track_msg.id = track.id;
-      track_msg.class_name = track.class_name;
-      track_msg.confidence = track.confidence;
-      track_msg.n = track.n;
-      track_msg.last_measurement_time = rclcpp::Time(static_cast<uint64_t>(track.last_measurement_time * 1e9));
-      
-      // Position
-      track_msg.pose.pose.position.x = track.current_state.x[0];
-      track_msg.pose.pose.position.y = track.current_state.x[1];
-      track_msg.pose.pose.position.z = track.current_state.x[2];
-      track_msg.pose.pose.orientation.w = 1.0;
-      
-      // Velocity (if available)
-      if (track.current_state.x.size() >= 6) {
-         track_msg.twist.twist.linear.x = track.current_state.x[3];
-         track_msg.twist.twist.linear.y = track.current_state.x[4];
-         track_msg.twist.twist.linear.z = track.current_state.x[5];
-      }
-      
-      // Acceleration (if available)
-      if (track.current_state.x.size() >= 9) {
-         track_msg.accel.accel.linear.x = track.current_state.x[6];
-         track_msg.accel.accel.linear.y = track.current_state.x[7];
-         track_msg.accel.accel.linear.z = track.current_state.x[8];
-      }
-      
-      // Fill covariances
-      for (int i = 0; i < 3; ++i) {
-         for (int j = 0; j < 3; ++j) {
-            track_msg.pose.covariance[i*6 + j] = track.current_state.P(i, j);
-         }
-      }
-      
-      if (track.current_state.x.size() >= 6) {
-         for (int i = 3; i < 6; ++i) {
-            for (int j = 3; j < 6; ++j) {
-               track_msg.twist.covariance[(i-3)*6 + (j-3)] = track.current_state.P(i, j);
+      // Fill velocity covariance if available
+      if (config_.model_type == CONSTANT_VELOCITY || 
+         config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) {
+         
+         if ((*it).current_state.x.size() >= 6) {
+            for (int i = 3; i < 6; ++i) {
+               for (int j = 3; j < 6; ++j) {
+                  track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+               }
             }
          }
       }
-      
-      if (track.current_state.x.size() >= 9) {
+
+      // Fill acceleration covariance if available
+      if ((config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) &&
+         (*it).current_state.x.size() >= 9) {
+         
          for (int i = 6; i < 9; ++i) {
             for (int j = 6; j < 9; ++j) {
-               track_msg.accel.covariance[(i-6)*6 + (j-6)] = track.current_state.P(i, j);
+               track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
             }
          }
       }
-      
-      // 2D Bounding box (YOLO format)
-      track_msg.has_2d_bbox = track.has_2d_bbox;
-      if (track.has_2d_bbox) {
-         track_msg.bbox_2d_center_x = track.bbox_2d_center_x;
-         track_msg.bbox_2d_center_y = track.bbox_2d_center_y;
-         track_msg.bbox_2d_width = track.bbox_2d_width;
-         track_msg.bbox_2d_height = track.bbox_2d_height;
-      }
-      
-      // 3D Bounding box
-      track_msg.has_3d_bbox = track.has_3d_bbox;
-      if (track.has_3d_bbox) {
-         track_msg.bbox_3d_center.x = track.bbox_3d_center.x();
-         track_msg.bbox_3d_center.y = track.bbox_3d_center.y();
-         track_msg.bbox_3d_center.z = track.bbox_3d_center.z();
-         track_msg.bbox_3d_size.x = track.bbox_3d_size.x();
-         track_msg.bbox_3d_size.y = track.bbox_3d_size.y();
-         track_msg.bbox_3d_size.z = track.bbox_3d_size.z();
-         track_msg.bbox_3d_orientation.w = track.bbox_3d_orientation.w();
-         track_msg.bbox_3d_orientation.x = track.bbox_3d_orientation.x();
-         track_msg.bbox_3d_orientation.y = track.bbox_3d_orientation.y();
-         track_msg.bbox_3d_orientation.z = track.bbox_3d_orientation.z();
-      }
-      
-      // Track quality
-      track_msg.track_score = track.track_score;
-      auto P_p = track.current_state.P.block(0,0,3,3);
-      track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
-      
-      track_msg.attributes = track.attributes;
-      
-      tracks_msg.tracks.push_back(track_msg);
-   }
-   
-   enhanced_good_tracks_pub_->publish(tracks_msg);
+     
+     // 2D Bounding box
+     track_msg.has_2d_bbox = (*it).has_2d_bbox;
+     if ((*it).has_2d_bbox) {
+        track_msg.bbox_2d_center_x = (*it).bbox_2d_center_x;
+        track_msg.bbox_2d_center_y = (*it).bbox_2d_center_y;
+        track_msg.bbox_2d_width = (*it).bbox_2d_width;
+        track_msg.bbox_2d_height = (*it).bbox_2d_height;
+     }
+     
+     // 3D Bounding box
+     track_msg.has_3d_bbox = (*it).has_3d_bbox;
+     if ((*it).has_3d_bbox) {
+        track_msg.bbox_3d_center.x = (*it).bbox_3d_center.x();
+        track_msg.bbox_3d_center.y = (*it).bbox_3d_center.y();
+        track_msg.bbox_3d_center.z = (*it).bbox_3d_center.z();
+        track_msg.bbox_3d_size.x = (*it).bbox_3d_size.x();
+        track_msg.bbox_3d_size.y = (*it).bbox_3d_size.y();
+        track_msg.bbox_3d_size.z = (*it).bbox_3d_size.z();
+        track_msg.bbox_3d_orientation.w = (*it).bbox_3d_orientation.w();
+        track_msg.bbox_3d_orientation.x = (*it).bbox_3d_orientation.x();
+        track_msg.bbox_3d_orientation.y = (*it).bbox_3d_orientation.y();
+        track_msg.bbox_3d_orientation.z = (*it).bbox_3d_orientation.z();
+     }
+     
+     // Track quality
+     auto P_p = (*it).current_state.P.block(0,0,3,3);
+     track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
+     
+     track_msg.attributes = (*it).attributes;
+
+     tracks_msg.tracks.push_back(track_msg);
+  }
+
+  all_poses_pub_->publish(pose_array);
+  all_tracks_pub_->publish(tracks_msg);
 }
-
-void TrackerROS::publishEnhancedAllTracks(void)
-{
-   if(kf_tracker_->enhanced_tracks_.empty()) {
-      return;
-   }
-   
-   multi_target_kf::msg::KFTracks tracks_msg;
-   tracks_msg.header.stamp = this->now();
-   tracks_msg.header.frame_id = kf_tracker_->tracking_frame_;
-   
-   for (const auto& track : kf_tracker_->enhanced_tracks_) {
-      multi_target_kf::msg::KFTrack track_msg;
-      
-      // Fill basic track information
-      track_msg.header = tracks_msg.header;
-      track_msg.id = track.id;
-      track_msg.class_name = track.class_name;
-      track_msg.confidence = track.confidence;
-      track_msg.n = track.n;
-      track_msg.last_measurement_time = rclcpp::Time(static_cast<uint64_t>(track.last_measurement_time * 1e9));
-      
-      // Position
-      track_msg.pose.pose.position.x = track.current_state.x[0];
-      track_msg.pose.pose.position.y = track.current_state.x[1];
-      track_msg.pose.pose.position.z = track.current_state.x[2];
-      track_msg.pose.pose.orientation.w = 1.0;
-      
-      // Velocity (if available)
-      if (track.current_state.x.size() >= 6) {
-         track_msg.twist.twist.linear.x = track.current_state.x[3];
-         track_msg.twist.twist.linear.y = track.current_state.x[4];
-         track_msg.twist.twist.linear.z = track.current_state.x[5];
-      }
-      
-      // Acceleration (if available)
-      if (track.current_state.x.size() >= 9) {
-         track_msg.accel.accel.linear.x = track.current_state.x[6];
-         track_msg.accel.accel.linear.y = track.current_state.x[7];
-         track_msg.accel.accel.linear.z = track.current_state.x[8];
-      }
-      
-      // Fill covariances
-      for (int i = 0; i < 3; ++i) {
-         for (int j = 0; j < 3; ++j) {
-            track_msg.pose.covariance[i*6 + j] = track.current_state.P(i, j);
-         }
-      }
-      
-      if (track.current_state.x.size() >= 6) {
-         for (int i = 3; i < 6; ++i) {
-            for (int j = 3; j < 6; ++j) {
-               track_msg.twist.covariance[(i-3)*6 + (j-3)] = track.current_state.P(i, j);
-            }
-         }
-      }
-      
-      if (track.current_state.x.size() >= 9) {
-         for (int i = 6; i < 9; ++i) {
-            for (int j = 6; j < 9; ++j) {
-               track_msg.accel.covariance[(i-6)*6 + (j-6)] = track.current_state.P(i, j);
-            }
-         }
-      }
-      
-      // 2D Bounding box (YOLO format)
-      track_msg.has_2d_bbox = track.has_2d_bbox;
-      if (track.has_2d_bbox) {
-         track_msg.bbox_2d_center_x = track.bbox_2d_center_x;
-         track_msg.bbox_2d_center_y = track.bbox_2d_center_y;
-         track_msg.bbox_2d_width = track.bbox_2d_width;
-         track_msg.bbox_2d_height = track.bbox_2d_height;
-      }
-      
-      // 3D Bounding box
-      track_msg.has_3d_bbox = track.has_3d_bbox;
-      if (track.has_3d_bbox) {
-         track_msg.bbox_3d_center.x = track.bbox_3d_center.x();
-         track_msg.bbox_3d_center.y = track.bbox_3d_center.y();
-         track_msg.bbox_3d_center.z = track.bbox_3d_center.z();
-         track_msg.bbox_3d_size.x = track.bbox_3d_size.x();
-         track_msg.bbox_3d_size.y = track.bbox_3d_size.y();
-         track_msg.bbox_3d_size.z = track.bbox_3d_size.z();
-         track_msg.bbox_3d_orientation.w = track.bbox_3d_orientation.w();
-         track_msg.bbox_3d_orientation.x = track.bbox_3d_orientation.x();
-         track_msg.bbox_3d_orientation.y = track.bbox_3d_orientation.y();
-         track_msg.bbox_3d_orientation.z = track.bbox_3d_orientation.z();
-      }
-      
-      // Track quality
-      track_msg.track_score = track.track_score;
-      auto P_p = track.current_state.P.block(0,0,3,3);
-      track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
-      
-      track_msg.attributes = track.attributes;
-      
-      tracks_msg.tracks.push_back(track_msg);
-   }
-   
-   enhanced_all_tracks_pub_->publish(tracks_msg);
-}
-////////////////////////////////////////////
-
-
-///////////////////////////////////////////
 
 void TrackerROS::filterLoop(void)
 {
-   if(kf_tracker_->debug_)
-      RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
+  if(kf_tracker_->debug_)
+     RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
 
-   // Run the basic filter loop
-   kf_tracker_->filterLoop(this->now().seconds());
+  // Run the unified filter loop
+  kf_tracker_->filterLoop(this->now().seconds());
 
-   // Handle enhanced tracking if we have enhanced measurements
-   if (!kf_tracker_->enhanced_measurement_set_.empty()) {
-      if (kf_tracker_->enhanced_tracks_.empty()) {
-         kf_tracker_->initEnhancedTracks();
-      } else {
-         // For now, we'll use the basic tracking and convert to enhanced
-         // In a full implementation, you'd have separate enhanced tracking logic
-         kf_tracker_->enhanced_tracks_.clear();
-         for (const auto& basic_track : kf_tracker_->tracks_) {
-            enhanced_kf_track enhanced_track = kf_tracker_->convertToEnhancedTrack(basic_track);
-            kf_tracker_->enhanced_tracks_.push_back(enhanced_track);
-         }
-      }
-      
-      kf_tracker_->updateEnhancedCertainTracks();
-   }
-
-   // Publish basic tracks (backward compatibility)
-   publishAllTracks();
-   publishCertainTracks();
-   
-   // Publish enhanced tracks
-   publishEnhancedAllTracks();
-   publishEnhancedCertainTracks();
+  // Publish unified tracks (contain all information now)
+  publishAllTracks();
+  publishCertainTracks();
 }
 
 void TrackerROS::paramsTimerCallback()
 {
-   // Update model-specific parameters
-   if (config_.model_type == CONSTANT_VELOCITY) {
-      // Check if any key parameters have changed
-      double sigma_a = this->get_parameter("sigma_a").as_double();
-      if (sigma_a != config_.sigma_a) {
-         config_.sigma_a = sigma_a;
-         kf_tracker_->sigma_a_ = sigma_a;
-         ConstantVelModel* model = static_cast<ConstantVelModel*>(kf_tracker_->kf_model_);
-         model->setSigmaA(sigma_a);
-      }
+  // Update model-specific parameters
+  if (config_.model_type == CONSTANT_VELOCITY) {
+     // Check if any key parameters have changed
+     double sigma_a = this->get_parameter("sigma_a").as_double();
+     if (sigma_a != config_.sigma_a) {
+        config_.sigma_a = sigma_a;
+        kf_tracker_->sigma_a_ = sigma_a;
+        ConstantVelModel* model = static_cast<ConstantVelModel*>(kf_tracker_->kf_model_);
+        model->setSigmaA(sigma_a);
+     }
+  }
+  else if (config_.model_type == CONSTANT_ACCELERATION) {
+     // Check if any key parameters have changed
+     double sigma_j = this->get_parameter("sigma_j").as_double();
+     if (sigma_j != config_.sigma_j) {
+        config_.sigma_j = sigma_j;
+        kf_tracker_->sigma_j_ = sigma_j;
+        ConstantAccelModel* model = static_cast<ConstantAccelModel*>(kf_tracker_->kf_model_);
+        model->setSigmaJ(sigma_j);
+     }
    }
-   else if (config_.model_type == CONSTANT_ACCELERATION) {
-      // Check if any key parameters have changed
-      double sigma_j = this->get_parameter("sigma_j").as_double();
-      if (sigma_j != config_.sigma_j) {
-         config_.sigma_j = sigma_j;
-         kf_tracker_->sigma_j_ = sigma_j;
-         ConstantAccelModel* model = static_cast<ConstantAccelModel*>(kf_tracker_->kf_model_);
-         model->setSigmaJ(sigma_j);
-      }
-    }
-    // Update UKF model parameters if using that model
-    else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
-        AdaptiveAccelUKF* model = static_cast<AdaptiveAccelUKF*>(kf_tracker_->kf_model_);
-        
-        // Check if any key parameters have changed
-        double jerk_std = this->get_parameter("jerk_std").as_double();
-        if (jerk_std != config_.jerk_std) {
-            config_.jerk_std = jerk_std;
-            model->setJerkStd(jerk_std);
-        }
-        
-        double adaptive_threshold = this->get_parameter("adaptive_threshold").as_double();
-        if (adaptive_threshold != config_.adaptive_threshold) {
-            config_.adaptive_threshold = adaptive_threshold;
-            model->setAdaptiveThreshold(adaptive_threshold);
-        }
-        
-        double adaptive_decay = this->get_parameter("adaptive_decay").as_double();
-        if (adaptive_decay != config_.adaptive_decay) {
-            config_.adaptive_decay = adaptive_decay;
-            model->setAdaptiveDecay(adaptive_decay);
-        }
-    }
-   
-   // Update R matrix from individual components if they're set
-   double r_diag_x = this->get_parameter("r_diag_x").as_double();
-   double r_diag_y = this->get_parameter("r_diag_y").as_double();
-   double r_diag_z = this->get_parameter("r_diag_z").as_double();
-   std::vector<double> r_diag = {r_diag_x, r_diag_y, r_diag_z};
-   
-   if (r_diag != config_.r_diag) {
-      config_.r_diag = r_diag;
-      if (!kf_tracker_->kf_model_->R(r_diag))
-         RCLCPP_ERROR(this->get_logger(), "[paramsTimerCallback] Could not set r_diag");
+   // Update UKF model parameters if using that model
+   else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
+       AdaptiveAccelUKF* model = static_cast<AdaptiveAccelUKF*>(kf_tracker_->kf_model_);
+       
+       // Check if any key parameters have changed
+       double jerk_std = this->get_parameter("jerk_std").as_double();
+       if (jerk_std != config_.jerk_std) {
+           config_.jerk_std = jerk_std;
+           model->setJerkStd(jerk_std);
+       }
+       
+       double adaptive_threshold = this->get_parameter("adaptive_threshold").as_double();
+       if (adaptive_threshold != config_.adaptive_threshold) {
+           config_.adaptive_threshold = adaptive_threshold;
+           model->setAdaptiveThreshold(adaptive_threshold);
+       }
+       
+       double adaptive_decay = this->get_parameter("adaptive_decay").as_double();
+       if (adaptive_decay != config_.adaptive_decay) {
+           config_.adaptive_decay = adaptive_decay;
+           model->setAdaptiveDecay(adaptive_decay);
+       }
    }
-   
-   // Update other tracking parameters
-   double V_max = this->get_parameter("V_max").as_double();
-   if (V_max != config_.V_max) {
-      config_.V_max = V_max;
-      kf_tracker_->V_max_ = V_max;
-   }
-   
-   double V_certain = this->get_parameter("V_certain").as_double();
-   if (V_certain != config_.V_certain) {
-      config_.V_certain = V_certain;
-      kf_tracker_->V_certain_ = V_certain;
-   }
-   
-   int N_meas = this->get_parameter("N_meas").as_int();
-   if (N_meas > 0 && N_meas != config_.N_meas) {
-      config_.N_meas = N_meas;
-      kf_tracker_->N_meas_ = N_meas;
-   }
-   
-   double l_threshold = this->get_parameter("l_threshold").as_double();
-   if (l_threshold != config_.l_threshold) {
-      config_.l_threshold = l_threshold;
-      kf_tracker_->l_threshold_ = l_threshold;
-   }
-   bool do_update_step = this->get_parameter("do_kf_update_step").as_bool();
-   if (do_update_step != config_.do_update_step) {
-      config_.do_update_step = do_update_step;
-      kf_tracker_->do_update_step_ = do_update_step;
-   }
-   
-   double track_measurement_timeout = this->get_parameter("track_measurement_timeout").as_double();
-   if (track_measurement_timeout != config_.track_measurement_timeout) {
-      config_.track_measurement_timeout = track_measurement_timeout;
-      kf_tracker_->track_measurement_timeout_ = track_measurement_timeout;
-   }
-   
-   bool use_track_id = this->get_parameter("use_track_id").as_bool();
-   if (use_track_id != config_.use_track_id) {
-      config_.use_track_id = use_track_id;
-      kf_tracker_->use_track_id_ = use_track_id;
-   }
+  
+  // Update R matrix from individual components if they're set
+  double r_diag_x = this->get_parameter("r_diag_x").as_double();
+  double r_diag_y = this->get_parameter("r_diag_y").as_double();
+  double r_diag_z = this->get_parameter("r_diag_z").as_double();
+  std::vector<double> r_diag = {r_diag_x, r_diag_y, r_diag_z};
+  
+  if (r_diag != config_.r_diag) {
+     config_.r_diag = r_diag;
+     if (!kf_tracker_->kf_model_->R(r_diag))
+        RCLCPP_ERROR(this->get_logger(), "[paramsTimerCallback] Could not set r_diag");
+  }
+  
+  // Update other tracking parameters
+  double V_max = this->get_parameter("V_max").as_double();
+  if (V_max != config_.V_max) {
+     config_.V_max = V_max;
+     kf_tracker_->V_max_ = V_max;
+  }
+  
+  double V_certain = this->get_parameter("V_certain").as_double();
+  if (V_certain != config_.V_certain) {
+     config_.V_certain = V_certain;
+     kf_tracker_->V_certain_ = V_certain;
+  }
+  
+  int N_meas = this->get_parameter("N_meas").as_int();
+  if (N_meas > 0 && N_meas != config_.N_meas) {
+     config_.N_meas = N_meas;
+     kf_tracker_->N_meas_ = N_meas;
+  }
+  
+  double l_threshold = this->get_parameter("l_threshold").as_double();
+  if (l_threshold != config_.l_threshold) {
+     config_.l_threshold = l_threshold;
+     kf_tracker_->l_threshold_ = l_threshold;
+  }
+  bool do_update_step = this->get_parameter("do_kf_update_step").as_bool();
+  if (do_update_step != config_.do_update_step) {
+     config_.do_update_step = do_update_step;
+     kf_tracker_->do_update_step_ = do_update_step;
+  }
+  
+  double track_measurement_timeout = this->get_parameter("track_measurement_timeout").as_double();
+  if (track_measurement_timeout != config_.track_measurement_timeout) {
+     config_.track_measurement_timeout = track_measurement_timeout;
+     kf_tracker_->track_measurement_timeout_ = track_measurement_timeout;
+  }
+  
+  bool use_track_id = this->get_parameter("use_track_id").as_bool();
+  if (use_track_id != config_.use_track_id) {
+     config_.use_track_id = use_track_id;
+     kf_tracker_->use_track_id_ = use_track_id;
+  }
 }

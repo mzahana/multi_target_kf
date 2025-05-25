@@ -132,5 +132,22 @@ struct enhanced_measurement
 
 // Conversion function from enhanced_measurement to basic sensor_measurement
 sensor_measurement toBasicMeasurement(const enhanced_measurement& enhanced);
+// enhanced_measurement fromPose(const geometry_msgs::msg::Pose& pose, double timestamp, unsigned int id = 0);
+/**
+ * @brief Convert enhanced_measurement to basic sensor_measurement for KF processing
+ * @param detection Enhanced measurement with additional information
+ * @return Basic sensor measurement for Kalman filter
+ */
+sensor_measurement toSensorMeasurement(const enhanced_measurement& detection);
+
+inline sensor_measurement toSensorMeasurement(const enhanced_measurement& detection)
+{
+    sensor_measurement basic;
+    basic.time_stamp = detection.time_stamp;
+    basic.id = detection.id;
+    basic.z = detection.position;
+    basic.R = detection.position_cov;
+    return basic;
+}
 
 #endif //STRUCTS_H

@@ -39,7 +39,7 @@ private:
     KFTracker *kf_tracker_;                    /**< Pointer to the KF tracker */
     TrackerConfig config_;                     /**< Tracker configuration */
     std::string target_frameid_;               /**< Target frame name which will be post-fixed by the target unique number e.g. "tag", post-fixed will be like "tag1" */
-    bool listen_tf_;                           /**< listens to TF to find transofrms of received measurements w.r.t. tracking_frame_ */
+    bool listen_tf_;                           /**< listens to TF to find transforms of received measurements w.r.t. tracking_frame_ */
 
     rclcpp::TimerBase::SharedPtr kf_loop_timer_;   /**< Timer for the KF loop */
     rclcpp::TimerBase::SharedPtr params_timer_;    /**< Timer for parameter updates */
@@ -49,12 +49,10 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr all_poses_pub_;            /**< ROS publisher for KF estimated (ALL) tracks positions */
     rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr all_tracks_pub_;          /**< ROS publisher for KF estimated tracks positions, using custom KFTracks.msg */
    
-    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_sub_;        /**< Subscriber to measurments. */
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr pose_array_sub_;        /**< Subscriber to measurements. */
+    rclcpp::Subscription<multi_target_kf::msg::Detections>::SharedPtr detections_sub_;     /**< Subscriber to detection messages */
 
-    // Enhanced detection support
-    rclcpp::Subscription<multi_target_kf::msg::Detections>::SharedPtr detections_sub_;
-    rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr enhanced_good_tracks_pub_;
-    rclcpp::Publisher<multi_target_kf::msg::KFTracks>::SharedPtr enhanced_all_tracks_pub_;
+    
 
     /**
      * @brief Load parameters from ROS parameter server
@@ -89,15 +87,9 @@ private:
     void paramsTimerCallback(void);
 
     /**
-     * @brief Enhanced detections callback
+     * @brief Detections callback for detection messages with additional information
      */
     void detectionsCallback(const multi_target_kf::msg::Detections & msg);
-    
-    /**
-     * @brief Publish enhanced tracks
-     */
-    void publishEnhancedCertainTracks(void);
-    void publishEnhancedAllTracks(void);
     
     /**
      * @brief Convert enhanced_measurement to sensor_measurement
