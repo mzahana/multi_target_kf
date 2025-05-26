@@ -53,6 +53,10 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
 
 void TrackerROS::loadParameters()
 {
+   // Add parameter for time source
+    this->declare_parameter("use_sim_time", false);
+    use_sim_time_ = this->get_parameter("use_sim_time").as_bool();
+    
    // Model type selection
    this->declare_parameter("model_type", static_cast<int>(CONSTANT_VELOCITY));
    config_.model_type = static_cast<ModelType>(this->get_parameter("model_type").get_parameter_value().get<int>());
@@ -203,13 +207,17 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
       return;
    }
 
-   auto now = this->now().seconds();
+   // auto now = this->now().seconds();
+   // Use measurement time, instead of ROS now(). This is a proper way to match the actual measurement time
+   double msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+   latest_measurement_time_ = std::max(latest_measurement_time_, msg_time);
    kf_tracker_->measurement_set_mtx_.lock();
    for (auto it = msg.poses.begin(); it != msg.poses.end(); it++)
    {
       sensor_measurement z;
       
-      z.time_stamp = now;
+      // z.time_stamp = now;
+      z.time_stamp = msg_time;  // Use message timestamp
       if(kf_tracker_->debug_)
          RCLCPP_WARN(this->get_logger(), "[poseArrayCallback]: Measurement time = %f.", z.time_stamp);
       
@@ -253,12 +261,16 @@ void TrackerROS::detectionsCallback(const multi_target_kf::msg::Detections & msg
       return;
    }
    
-   auto now = this->now().seconds();
+   // auto now = this->now().seconds();
+   // Use the message timestamp instead of now()
+   double msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+   latest_measurement_time_ = std::max(latest_measurement_time_, msg_time);
    
    kf_tracker_->measurement_set_mtx_.lock();
    for (const auto& detection : msg.detections) {
       enhanced_measurement det = convertFromDetectionMsg(detection);
-      det.time_stamp = now;
+      // det.time_stamp = now;
+      det.time_stamp = msg_time;  // Use message timestamp
       
       kf_tracker_->detection_set_.push_back(det);
       
@@ -607,16 +619,37 @@ void TrackerROS::publishAllTracks(void)
 
 void TrackerROS::filterLoop(void)
 {
-  if(kf_tracker_->debug_)
-     RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
+    if(kf_tracker_->debug_)
+        RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
 
-  // Run the unified filter loop
-  kf_tracker_->filterLoop(this->now().seconds());
+    // Determine current time based on mode
+    double current_time;
+    if (use_sim_time_) {
+        // In simulation mode, use the ROS time (which follows bag time when use_sim_time is true)
+        current_time = this->get_clock()->now().seconds();
+    } else {
+        // In real-time mode, use wall clock
+        current_time = this->now().seconds();
+    }
+    
+    // Safety check: don't propagate backwards in time
+    if (latest_measurement_time_ > 0.0 && current_time < latest_measurement_time_) {
+        if(kf_tracker_->debug_) {
+            RCLCPP_WARN(this->get_logger(), 
+                       "[filterLoop] Current time (%f) is behind latest measurement (%f). Using measurement time.", 
+                       current_time, latest_measurement_time_);
+        }
+        current_time = latest_measurement_time_;
+    }
 
-  // Publish unified tracks (contain all information now)
-  publishAllTracks();
-  publishCertainTracks();
+    // Run the filter loop with proper current time
+    kf_tracker_->filterLoop(current_time);
+
+    // Publish tracks
+    publishAllTracks();
+    publishCertainTracks();
 }
+
 
 void TrackerROS::paramsTimerCallback()
 {
