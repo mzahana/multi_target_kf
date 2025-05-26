@@ -54,15 +54,10 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
 void TrackerROS::loadParameters()
 {
    // Get the built-in use_sim_time parameter (don't declare it)
-    try {
-        use_sim_time_ = this->get_parameter("use_sim_time").as_bool();
-    } catch (const rclcpp::exceptions::ParameterNotDeclaredException& e) {
-        // If not set, default to false
-        use_sim_time_ = false;
-        RCLCPP_INFO(this->get_logger(), "use_sim_time parameter not set, defaulting to false");
-    }
+   this->declare_parameter("kf_use_sim_time", false); 
+   kf_use_sim_time_ = this->get_parameter("kf_use_sim_time_").as_bool();
     
-    RCLCPP_INFO(this->get_logger(), "Using %s time", use_sim_time_ ? "simulation" : "wall clock");
+    RCLCPP_INFO(this->get_logger(), "Using %s time", kf_use_sim_time_ ? "simulation" : "wall clock");
 
    // Model type selection
    this->declare_parameter("model_type", static_cast<int>(CONSTANT_VELOCITY));
@@ -631,8 +626,8 @@ void TrackerROS::filterLoop(void)
 
     // Determine current time based on mode
     double current_time;
-    if (use_sim_time_) {
-        // In simulation mode, use the ROS time (which follows bag time when use_sim_time is true)
+    if (kf_use_sim_time_) {
+        // In simulation mode, use the ROS time (which follows bag time when kf_use_sim_time_ is true)
         current_time = this->get_clock()->now().seconds();
     } else {
         // In real-time mode, use wall clock

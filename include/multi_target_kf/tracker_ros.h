@@ -42,7 +42,7 @@ private:
     bool listen_tf_;                           /**< listens to TF to find transforms of received measurements w.r.t. tracking_frame_ */
 
     double latest_measurement_time_;  // Track the latest measurement timestamp
-    bool use_sim_time_;              // Parameter to switch time sources
+    bool kf_use_sim_time_;              // Parameter to switch time sources
 
     rclcpp::TimerBase::SharedPtr kf_loop_timer_;   /**< Timer for the KF loop */
     rclcpp::TimerBase::SharedPtr params_timer_;    /**< Timer for parameter updates */
