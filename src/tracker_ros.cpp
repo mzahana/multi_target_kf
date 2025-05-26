@@ -53,10 +53,17 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
 
 void TrackerROS::loadParameters()
 {
-   // Add parameter for time source
-    this->declare_parameter("use_sim_time", false);
-    use_sim_time_ = this->get_parameter("use_sim_time").as_bool();
+   // Get the built-in use_sim_time parameter (don't declare it)
+    try {
+        use_sim_time_ = this->get_parameter("use_sim_time").as_bool();
+    } catch (const rclcpp::exceptions::ParameterNotDeclaredException& e) {
+        // If not set, default to false
+        use_sim_time_ = false;
+        RCLCPP_INFO(this->get_logger(), "use_sim_time parameter not set, defaulting to false");
+    }
     
+    RCLCPP_INFO(this->get_logger(), "Using %s time", use_sim_time_ ? "simulation" : "wall clock");
+
    // Model type selection
    this->declare_parameter("model_type", static_cast<int>(CONSTANT_VELOCITY));
    config_.model_type = static_cast<ModelType>(this->get_parameter("model_type").get_parameter_value().get<int>());
