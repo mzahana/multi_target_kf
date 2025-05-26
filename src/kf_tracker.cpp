@@ -657,6 +657,7 @@ void KFTracker::updateTracksFromDetections(double t)
 
         // Predict track to current time stamp
         double dt = t - (*it_t).current_state.time_stamp;
+        if(debug_) printf("[updateTracksFromDetections] Time difference between track %d time and current tim dt=%f \n", tr_idx, dt);
         (*it_t).current_state = kf_model_->predictX((*it_t).current_state, dt);
         (*it_t).buffer.push_back((*it_t).current_state);
         if((*it_t).buffer.size() > state_buffer_size_)
