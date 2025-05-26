@@ -53,9 +53,8 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
 
 void TrackerROS::loadParameters()
 {
-   // Get the built-in use_sim_time parameter (don't declare it)
    this->declare_parameter("kf_use_sim_time", false); 
-   kf_use_sim_time_ = this->get_parameter("kf_use_sim_time_").as_bool();
+   kf_use_sim_time_ = this->get_parameter("kf_use_sim_time").as_bool();
     
     RCLCPP_INFO(this->get_logger(), "Using %s time", kf_use_sim_time_ ? "simulation" : "wall clock");
 
