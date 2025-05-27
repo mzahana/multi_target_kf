@@ -820,8 +820,8 @@ void KFTracker::updateTracksFromBasicMeasurements(double t)
         }
 
         // Predict to current time
-        double dt = t - (*it_t).current_state.time_stamp;
-        (*it_t).current_state = kf_model_->predictX((*it_t).current_state, dt);
+        // double dt = t - (*it_t).current_state.time_stamp;
+        // (*it_t).current_state = kf_model_->predictX((*it_t).current_state, dt);
         (*it_t).buffer.push_back((*it_t).current_state);
         if((*it_t).buffer.size() > state_buffer_size_)
             (*it_t).buffer.erase((*it_t).buffer.begin());
