@@ -53,12 +53,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 struct kf_track
 {
-   unsigned int id; /**< Unique track ID, e.g. Apriltag ID. Also, useful for object association */
-   std::string frame_id;
-   kf_state current_state;
-   std::vector<kf_state> buffer;
-   unsigned int n; /**< Number of received measurements. */
-   double last_measurement_time;
+    unsigned int id;                    /**< Unique track ID */
+    std::string class_name;             /**< Object class (default: "unknown") */
+    double confidence;                  /**< Average confidence (default: 1.0) */
+    std::string frame_id;
+    kf_state current_state;
+    std::vector<kf_state> buffer;
+    unsigned int n;                     /**< Number of received measurements */
+    double last_measurement_time;
+    double track_score;                 /**< Track quality score (default: 1.0) */
+    
+    // 2D Bounding box information (YOLO format: center + size)
+    bool has_2d_bbox;
+    double bbox_2d_center_x, bbox_2d_center_y, bbox_2d_width, bbox_2d_height;
+    
+    // 3D Bounding box information (center + size + orientation)
+    bool has_3d_bbox;
+    Eigen::Vector3d bbox_3d_center;
+    Eigen::Vector3d bbox_3d_size;
+    Eigen::Quaterniond bbox_3d_orientation;
+    
+    std::vector<std::string> attributes;
+    
+    // Constructor with default values
+    kf_track() :
+        id(0), class_name("unknown"), confidence(1.0), n(0), 
+        last_measurement_time(0.0), track_score(1.0),
+        has_2d_bbox(false), bbox_2d_center_x(0.0), bbox_2d_center_y(0.0), 
+        bbox_2d_width(0.0), bbox_2d_height(0.0), has_3d_bbox(false) {}
+    
+    // Helper function to get 2D bbox in top-left format (if needed for visualization)
+    void get2DBboxTopLeft(double& top_left_x, double& top_left_y) const {
+        top_left_x = bbox_2d_center_x - bbox_2d_width / 2.0;
+        top_left_y = bbox_2d_center_y - bbox_2d_height / 2.0;
+    }
 };
 
 //* KFTracker class
@@ -106,6 +134,8 @@ public:
    std::vector<kf_track> tracks_;                     /**< Vector of current tracks. */
    std::vector<kf_track> certain_tracks_;             /**< Vector of certain tracks only. */
    std::vector<sensor_measurement> measurement_set_;  /**< set of all measurements. */
+   std::vector<enhanced_measurement> detection_set_;  /**< Detection measurements with extra info */
+
    kf_state kf_state_pred_;                           /**< KF predicted state and covariance */
    std::vector<kf_state> state_buffer_;               /**< Buffer to store last state_buffer_size_ predicted x and P */
 
@@ -118,6 +148,16 @@ public:
     * @brief Initializes KF tracks using current measurements.
     */
    void initTracks(void);
+
+   /**
+    * @brief Initialize tracks from detection measurements
+    */
+   void initTracksFromDetections(void);
+   
+   /**
+    * @brief Initialize tracks from basic measurements  
+    */
+   void initTracksFromBasicMeasurements(void);
 
    /**
     * @brief Predicts the state of all tracks
@@ -135,6 +175,25 @@ public:
     * @param t Current time in seconds
     */
    void updateTracks(double t);
+
+   /**
+    * @brief Update tracks using detection measurements with full information
+    * @param t Current time in seconds
+    */
+   void updateTracksFromDetections(double t);
+   
+   /**
+    * @brief Update tracks using basic pose measurements (renamed from existing updateTracks logic)
+    * @param t Current time in seconds
+    */
+   void updateTracksFromBasicMeasurements(double t);
+   
+   /**
+    * @brief Update track fields from detection measurement
+    * @param track Track to update
+    * @param detection Detection measurement with additional information
+    */
+   void updateTrackFromDetection(kf_track& track, const enhanced_measurement& detection);
 
    /**
     * @brief Extract tracks with high certainty from the current tracks.

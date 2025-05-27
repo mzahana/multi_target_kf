@@ -10,8 +10,10 @@ def generate_launch_description():
     # Add argument for the path of the yaml file
     kf_yaml = LaunchConfiguration('kf_yaml')
     detections_topic = LaunchConfiguration('detections_topic')
+    measurement_topic = LaunchConfiguration('measurement_topic')
     namespace = LaunchConfiguration('kf_ns')
     model_type = LaunchConfiguration('model_type')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     # Default config for UKF model
     config = os.path.join(
@@ -28,8 +30,14 @@ def generate_launch_description():
 
     detections_topic_launch_arg = DeclareLaunchArgument(
         'detections_topic',
+        default_value='detections',
+        description='Topic for incoming measurements as custom detections message'
+    )
+    
+    measurement_topic_launch_arg = DeclareLaunchArgument(
+        'measurement_topic',
         default_value='measurement/pose_array',
-        description='Topic for incoming measurements'
+        description='Topic for incoming measurements as pose array'
     )
 
     namespace_launch_arg = DeclareLaunchArgument(
@@ -44,6 +52,12 @@ def generate_launch_description():
         description='Motion model type: 0=CONSTANT_VELOCITY, 1=CONSTANT_ACCELERATION, 2=ADAPTIVE_ACCEL_UKF'
     )
 
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false', 
+        description='simulation time vs. real time'
+    )
+
     # KF node
     kf_node = Node(
         package='multi_target_kf',
@@ -53,17 +67,22 @@ def generate_launch_description():
         output='screen',
         parameters=[
             kf_yaml,
-            {'model_type': model_type}
+            {'model_type': model_type,
+            'use_sim_time': use_sim_time}
         ],
-        remappings=[('measurement/pose_array', detections_topic)]
+        remappings=[('detections', detections_topic),
+                    ('measurement/pose_array', measurement_topic)
+                    ]
     )
 
     ld = LaunchDescription()
 
     ld.add_action(kf_yaml_launch_arg)
     ld.add_action(detections_topic_launch_arg)
+    ld.add_action(measurement_topic_launch_arg)
     ld.add_action(namespace_launch_arg)
     ld.add_action(model_type_launch_arg)
+    ld.add_action(use_sim_time_arg)
     ld.add_action(kf_node)
 
     return ld

@@ -25,6 +25,8 @@ find_package(ament_cmake_python REQUIRED)
 
 # Generate interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Detection.msg"
+  "msg/Detections.msg"
   "msg/KFTrack.msg"
   "msg/KFTracks.msg"
   DEPENDENCIES std_msgs builtin_interfaces geometry_msgs 

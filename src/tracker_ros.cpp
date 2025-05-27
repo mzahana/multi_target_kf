@@ -29,7 +29,7 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
       std::chrono::duration<double>(kf_tracker_->dt_pred_));
    
    kf_loop_timer_ = this->create_wall_timer(
-      duration_ms, std::bind(&TrackerROS::filterLoop, this)); // Define timer for constant loop rate
+      duration_ms, std::bind(&TrackerROS::filterLoop, this));
 
    params_timer_ = this->create_wall_timer(
       1000ms, std::bind(&TrackerROS::paramsTimerCallback, this));
@@ -38,15 +38,22 @@ TrackerROS::TrackerROS() : Node("tracker_ros")
    pose_array_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
       "measurement/pose_array", 10, std::bind(&TrackerROS::poseArrayCallback, this, _1));
 
-   // Define publishers
+   // Detections subscriber
+   detections_sub_ = this->create_subscription<multi_target_kf::msg::Detections>(
+      "detections", 10, std::bind(&TrackerROS::detectionsCallback, this, _1));
+
+   // Define publishers (unified tracks contain all information now)
    good_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/good_tracks_pose_array", 10);
    all_poses_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("kf/all_tracks_pose_array", 10);
    good_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/good_tracks", 10);
    all_tracks_pub_ = this->create_publisher<multi_target_kf::msg::KFTracks>("kf/all_tracks", 10);
+   
+   // Remove enhanced publishers - unified approach now
 }
 
 void TrackerROS::loadParameters()
 {
+
    // Model type selection
    this->declare_parameter("model_type", static_cast<int>(CONSTANT_VELOCITY));
    config_.model_type = static_cast<ModelType>(this->get_parameter("model_type").get_parameter_value().get<int>());
@@ -185,26 +192,31 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
 {
    kf_tracker_->measurement_set_mtx_.lock();
    kf_tracker_->measurement_set_.clear();
+   // Clear detection set since we're using basic measurements
+   kf_tracker_->detection_set_.clear();
    kf_tracker_->measurement_set_mtx_.unlock();
    
    // Sanity check
    if(msg.poses.empty())
    {
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: No measurements received.");
-
+         RCLCPP_WARN(this->get_logger(), "[poseArrayCallback]: No measurements received.");
       return;
    }
 
-   auto now = this->now().seconds();
+   // auto now = this->now().seconds();
+   // Use measurement time, instead of ROS now(). This is a proper way to match the actual measurement time
+   double msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+   latest_measurement_time_ = std::max(latest_measurement_time_, msg_time);
    kf_tracker_->measurement_set_mtx_.lock();
    for (auto it = msg.poses.begin(); it != msg.poses.end(); it++)
    {
       sensor_measurement z;
       
-      z.time_stamp = now;
+      // z.time_stamp = now;
+      z.time_stamp = msg_time;  // Use message timestamp
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::poseArrayCallback]: Measurement time = %f.", z.time_stamp);
+         RCLCPP_WARN(this->get_logger(), "[poseArrayCallback]: Measurement time = %f.", z.time_stamp);
       
       z.id = 0;
       z.z = Eigen::MatrixXd::Zero(3,1); // 3, because it's always position only, for now!
@@ -231,11 +243,126 @@ void TrackerROS::poseArrayCallback(const geometry_msgs::msg::PoseArray & msg)
    kf_tracker_->measurement_set_mtx_.unlock();
 }
 
+void TrackerROS::detectionsCallback(const multi_target_kf::msg::Detections & msg)
+{
+   kf_tracker_->measurement_set_mtx_.lock();
+   // Clear both measurement sets
+   kf_tracker_->detection_set_.clear();
+   kf_tracker_->measurement_set_.clear();
+   kf_tracker_->measurement_set_mtx_.unlock();
+   
+   if(msg.detections.empty())
+   {
+      if(kf_tracker_->debug_)
+         RCLCPP_WARN(this->get_logger(), "[detectionsCallback]: No detections received.");
+      return;
+   }
+   
+   // auto now = this->now().seconds();
+   // Use the message timestamp instead of now()
+   double msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9;
+   latest_measurement_time_ = std::max(latest_measurement_time_, msg_time);
+   
+   kf_tracker_->measurement_set_mtx_.lock();
+   for (const auto& detection : msg.detections) {
+      enhanced_measurement det = convertFromDetectionMsg(detection);
+      // det.time_stamp = now;
+      det.time_stamp = msg_time;  // Use message timestamp
+      
+      kf_tracker_->detection_set_.push_back(det);
+      
+      // Also add to basic measurements for backward compatibility
+      sensor_measurement basic_meas = convertToBasicMeasurement(det);
+      kf_tracker_->measurement_set_.push_back(basic_meas);
+   }
+   kf_tracker_->measurement_set_mtx_.unlock();
+   
+   if(kf_tracker_->debug_){
+      RCLCPP_INFO(this->get_logger(), "[detectionsCallback] Received %lu detections", msg.detections.size());
+   }
+}
+
+enhanced_measurement TrackerROS::convertFromDetectionMsg(const multi_target_kf::msg::Detection& detection_msg)
+{
+   enhanced_measurement meas;
+   
+   meas.id = detection_msg.id;
+   meas.class_name = detection_msg.class_name;
+   meas.confidence = detection_msg.confidence;
+   
+   // Position
+   meas.position = Eigen::VectorXd::Zero(3);
+   meas.position(0) = detection_msg.position.x;
+   meas.position(1) = detection_msg.position.y;
+   meas.position(2) = detection_msg.position.z;
+   
+   // Position covariance (diagonal)
+   meas.position_cov = Eigen::MatrixXd::Identity(3, 3);
+   meas.position_cov(0, 0) = detection_msg.position_covariance.x;
+   meas.position_cov(1, 1) = detection_msg.position_covariance.y;
+   meas.position_cov(2, 2) = detection_msg.position_covariance.z;
+   
+   // Linear velocity
+   meas.has_linear_velocity = (detection_msg.linear_velocity.x != 0.0 || 
+                              detection_msg.linear_velocity.y != 0.0 || 
+                              detection_msg.linear_velocity.z != 0.0);
+   if (meas.has_linear_velocity) {
+      meas.linear_velocity = Eigen::VectorXd::Zero(3);
+      meas.linear_velocity(0) = detection_msg.linear_velocity.x;
+      meas.linear_velocity(1) = detection_msg.linear_velocity.y;
+      meas.linear_velocity(2) = detection_msg.linear_velocity.z;
+   }
+   
+   // 2D Bounding box (YOLO format: already center + size)
+   meas.has_2d_bbox = detection_msg.has_2d_bbox;
+   if (meas.has_2d_bbox) {
+      meas.bbox_2d_center_x = detection_msg.bbox_2d_center_x;
+      meas.bbox_2d_center_y = detection_msg.bbox_2d_center_y;
+      meas.bbox_2d_width = detection_msg.bbox_2d_width;
+      meas.bbox_2d_height = detection_msg.bbox_2d_height;
+   }
+   
+   // 3D Bounding box
+   meas.has_3d_bbox = detection_msg.has_3d_bbox;
+   if (meas.has_3d_bbox) {
+      meas.bbox_3d_center = Eigen::Vector3d(
+         detection_msg.bbox_3d_center.x,
+         detection_msg.bbox_3d_center.y,
+         detection_msg.bbox_3d_center.z
+      );
+      meas.bbox_3d_size = Eigen::Vector3d(
+         detection_msg.bbox_3d_size.x,
+         detection_msg.bbox_3d_size.y,
+         detection_msg.bbox_3d_size.z
+      );
+      meas.bbox_3d_orientation = Eigen::Quaterniond(
+         detection_msg.bbox_3d_orientation.w,
+         detection_msg.bbox_3d_orientation.x,
+         detection_msg.bbox_3d_orientation.y,
+         detection_msg.bbox_3d_orientation.z
+      );
+   }
+   
+   meas.attributes = detection_msg.attributes;
+   
+   return meas;
+}
+
+sensor_measurement TrackerROS::convertToBasicMeasurement(const enhanced_measurement& enhanced)
+{
+   sensor_measurement basic;
+   basic.time_stamp = enhanced.time_stamp;
+   basic.id = enhanced.id;
+   basic.z = enhanced.position;
+   basic.R = enhanced.position_cov;
+   return basic;
+}
+
 void TrackerROS::publishCertainTracks(void)
 {
    if(kf_tracker_->certain_tracks_.empty()){
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
+         RCLCPP_WARN(this->get_logger(), "[publishCertainTracks] certain_tracks_ is empty. No tracks to publish");
       return;
    }
 
@@ -261,56 +388,96 @@ void TrackerROS::publishCertainTracks(void)
       track_msg.header.frame_id = kf_tracker_->tracking_frame_;
       track_msg.id = (*it).id;
       track_msg.n = (*it).n;
+      
+      // Add unified track fields
+      track_msg.class_name = (*it).class_name;
+      track_msg.confidence = (*it).confidence;
+      track_msg.track_score = (*it).track_score;
 
       track_msg.pose.pose.position.x = (*it).current_state.x[0];
       track_msg.pose.pose.position.y = (*it).current_state.x[1];
       track_msg.pose.pose.position.z = (*it).current_state.x[2];
+      track_msg.pose.pose.orientation.w = 1.0;
 
       /* The following are model-dependent ! */
       if (config_.model_type == CONSTANT_VELOCITY || 
           config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
+          config_.model_type == ADAPTIVE_ACCEL_UKF) {
          track_msg.twist.twist.linear.x = (*it).current_state.x[3];
          track_msg.twist.twist.linear.y = (*it).current_state.x[4];
          track_msg.twist.twist.linear.z = (*it).current_state.x[5];
       }
       
       if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
+           config_.model_type == ADAPTIVE_ACCEL_UKF) &&
           (*it).current_state.x.size() >= 9) {
          track_msg.accel.accel.linear.x = (*it).current_state.x[6];
          track_msg.accel.accel.linear.y = (*it).current_state.x[7];
          track_msg.accel.accel.linear.z = (*it).current_state.x[8];
       }
 
-      // Fill the PoseWithCovariance covariance (first 3x3 block)
+      // Fill the PoseWithCovariance covariance (first 3x3 block for position)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
          }
       }
 
-      // Fill the TwistWithCovariance covariance (next 3x3 block for velocity)
+      // Fill velocity covariance if available
       if (config_.model_type == CONSTANT_VELOCITY || 
-          config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
-         for (int i = 3; i < 6; ++i) {
-            for (int j = 3; j < 6; ++j) {
-               track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+         config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) {
+         
+         if ((*it).current_state.x.size() >= 6) {
+            for (int i = 3; i < 6; ++i) {
+               for (int j = 3; j < 6; ++j) {
+                  track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+               }
             }
          }
       }
-      
-      // Fill the AccelWithCovariance covariance (next 3x3 block for acceleration)
+
+      // Fill acceleration covariance if available
       if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&    // Added UKF model
-          (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
+         config_.model_type == ADAPTIVE_ACCEL_UKF) &&
+         (*it).current_state.x.size() >= 9) {
+         
          for (int i = 6; i < 9; ++i) {
             for (int j = 6; j < 9; ++j) {
                track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
             }
          }
       }
+      
+      // 2D Bounding box
+      track_msg.has_2d_bbox = (*it).has_2d_bbox;
+      if ((*it).has_2d_bbox) {
+         track_msg.bbox_2d_center_x = (*it).bbox_2d_center_x;
+         track_msg.bbox_2d_center_y = (*it).bbox_2d_center_y;
+         track_msg.bbox_2d_width = (*it).bbox_2d_width;
+         track_msg.bbox_2d_height = (*it).bbox_2d_height;
+      }
+      
+      // 3D Bounding box
+      track_msg.has_3d_bbox = (*it).has_3d_bbox;
+      if ((*it).has_3d_bbox) {
+         track_msg.bbox_3d_center.x = (*it).bbox_3d_center.x();
+         track_msg.bbox_3d_center.y = (*it).bbox_3d_center.y();
+         track_msg.bbox_3d_center.z = (*it).bbox_3d_center.z();
+         track_msg.bbox_3d_size.x = (*it).bbox_3d_size.x();
+         track_msg.bbox_3d_size.y = (*it).bbox_3d_size.y();
+         track_msg.bbox_3d_size.z = (*it).bbox_3d_size.z();
+         track_msg.bbox_3d_orientation.w = (*it).bbox_3d_orientation.w();
+         track_msg.bbox_3d_orientation.x = (*it).bbox_3d_orientation.x();
+         track_msg.bbox_3d_orientation.y = (*it).bbox_3d_orientation.y();
+         track_msg.bbox_3d_orientation.z = (*it).bbox_3d_orientation.z();
+      }
+      
+      // Track quality
+      auto P_p = (*it).current_state.P.block(0,0,3,3);
+      track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
+      
+      track_msg.attributes = (*it).attributes;
 
       tracks_msg.tracks.push_back(track_msg);
    }
@@ -323,7 +490,7 @@ void TrackerROS::publishAllTracks(void)
 {
    if(kf_tracker_->tracks_.empty()){
       if(kf_tracker_->debug_)
-         RCLCPP_WARN(this->get_logger(), "[KFTracker::publishAllTracks] tracks_ is empty. No tracks to publish");
+         RCLCPP_WARN(this->get_logger(), "[publishAllTracks] tracks_ is empty. No tracks to publish");
       return;
    }
 
@@ -338,187 +505,242 @@ void TrackerROS::publishAllTracks(void)
 
    for (auto it = kf_tracker_->tracks_.begin(); it != kf_tracker_->tracks_.end(); it++)
    {
-      pose.position.x = (*it).current_state.x[0];
-      pose.position.y = (*it).current_state.x[1];
-      pose.position.z = (*it).current_state.x[2];
-      pose.orientation.w = 1.0;
+     pose.position.x = (*it).current_state.x[0];
+     pose.position.y = (*it).current_state.x[1];
+     pose.position.z = (*it).current_state.x[2];
+     pose.orientation.w = 1.0;
 
-      pose_array.poses.push_back(pose);
+     pose_array.poses.push_back(pose);
 
-      track_msg.header.stamp = rclcpp::Time(static_cast<uint64_t>((*it).current_state.time_stamp*1e9));
-      track_msg.header.frame_id = kf_tracker_->tracking_frame_;
-      track_msg.id = (*it).id;
-      track_msg.n = (*it).n;
+     track_msg.header.stamp = rclcpp::Time(static_cast<uint64_t>((*it).current_state.time_stamp*1e9));
+     track_msg.header.frame_id = kf_tracker_->tracking_frame_;
+     track_msg.id = (*it).id;
+     track_msg.n = (*it).n;
+     
+     // Add unified track fields
+     track_msg.class_name = (*it).class_name;
+     track_msg.confidence = (*it).confidence;
+     track_msg.track_score = (*it).track_score;
 
-      track_msg.pose.pose.position.x = (*it).current_state.x[0];
-      track_msg.pose.pose.position.y = (*it).current_state.x[1];
-      track_msg.pose.pose.position.z = (*it).current_state.x[2];
+     track_msg.pose.pose.position.x = (*it).current_state.x[0];
+     track_msg.pose.pose.position.y = (*it).current_state.x[1];
+     track_msg.pose.pose.position.z = (*it).current_state.x[2];
+     track_msg.pose.pose.orientation.w = 1.0;
 
-      /* The following are model-dependent ! */
-      if (config_.model_type == CONSTANT_VELOCITY || 
-          config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
-         track_msg.twist.twist.linear.x = (*it).current_state.x[3];
-         track_msg.twist.twist.linear.y = (*it).current_state.x[4];
-         track_msg.twist.twist.linear.z = (*it).current_state.x[5];
-      }
-      
-      if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
-          (*it).current_state.x.size() >= 9) {
-         track_msg.accel.accel.linear.x = (*it).current_state.x[6];
-         track_msg.accel.accel.linear.y = (*it).current_state.x[7];
-         track_msg.accel.accel.linear.z = (*it).current_state.x[8];
-      }
+     /* The following are model-dependent ! */
+     if (config_.model_type == CONSTANT_VELOCITY || 
+         config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) {
+        track_msg.twist.twist.linear.x = (*it).current_state.x[3];
+        track_msg.twist.twist.linear.y = (*it).current_state.x[4];
+        track_msg.twist.twist.linear.z = (*it).current_state.x[5];
+     }
+     
+     if ((config_.model_type == CONSTANT_ACCELERATION || 
+          config_.model_type == ADAPTIVE_ACCEL_UKF) &&
+         (*it).current_state.x.size() >= 9) {
+        track_msg.accel.accel.linear.x = (*it).current_state.x[6];
+        track_msg.accel.accel.linear.y = (*it).current_state.x[7];
+        track_msg.accel.accel.linear.z = (*it).current_state.x[8];
+     }
 
-      // Fill the PoseWithCovariance covariance (first 3x3 block)
+     // Fill the PoseWithCovariance covariance (first 3x3 block for position)
       for (int i = 0; i < 3; ++i) {
          for (int j = 0; j < 3; ++j) {
             track_msg.pose.covariance[i*6 + j] = (*it).current_state.P(i, j);
          }
       }
 
-      // Fill the TwistWithCovariance covariance (next 3x3 block for velocity)
+      // Fill velocity covariance if available
       if (config_.model_type == CONSTANT_VELOCITY || 
-          config_.model_type == CONSTANT_ACCELERATION || 
-          config_.model_type == ADAPTIVE_ACCEL_UKF) {  // Added UKF model
-         for (int i = 3; i < 6; ++i) {
-            for (int j = 3; j < 6; ++j) {
-               track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+         config_.model_type == CONSTANT_ACCELERATION || 
+         config_.model_type == ADAPTIVE_ACCEL_UKF) {
+         
+         if ((*it).current_state.x.size() >= 6) {
+            for (int i = 3; i < 6; ++i) {
+               for (int j = 3; j < 6; ++j) {
+                  track_msg.twist.covariance[(i-3)*6 + (j-3)] = (*it).current_state.P(i, j);
+               }
             }
          }
       }
-      
-      // Fill the AccelWithCovariance covariance (next 3x3 block for acceleration)
+
+      // Fill acceleration covariance if available
       if ((config_.model_type == CONSTANT_ACCELERATION || 
-           config_.model_type == ADAPTIVE_ACCEL_UKF) &&   // Added UKF model
-          (*it).current_state.P.rows() >= 9 && (*it).current_state.P.cols() >= 9) {
+         config_.model_type == ADAPTIVE_ACCEL_UKF) &&
+         (*it).current_state.x.size() >= 9) {
+         
          for (int i = 6; i < 9; ++i) {
             for (int j = 6; j < 9; ++j) {
                track_msg.accel.covariance[(i-6)*6 + (j-6)] = (*it).current_state.P(i, j);
             }
          }
       }
+     
+     // 2D Bounding box
+     track_msg.has_2d_bbox = (*it).has_2d_bbox;
+     if ((*it).has_2d_bbox) {
+        track_msg.bbox_2d_center_x = (*it).bbox_2d_center_x;
+        track_msg.bbox_2d_center_y = (*it).bbox_2d_center_y;
+        track_msg.bbox_2d_width = (*it).bbox_2d_width;
+        track_msg.bbox_2d_height = (*it).bbox_2d_height;
+     }
+     
+     // 3D Bounding box
+     track_msg.has_3d_bbox = (*it).has_3d_bbox;
+     if ((*it).has_3d_bbox) {
+        track_msg.bbox_3d_center.x = (*it).bbox_3d_center.x();
+        track_msg.bbox_3d_center.y = (*it).bbox_3d_center.y();
+        track_msg.bbox_3d_center.z = (*it).bbox_3d_center.z();
+        track_msg.bbox_3d_size.x = (*it).bbox_3d_size.x();
+        track_msg.bbox_3d_size.y = (*it).bbox_3d_size.y();
+        track_msg.bbox_3d_size.z = (*it).bbox_3d_size.z();
+        track_msg.bbox_3d_orientation.w = (*it).bbox_3d_orientation.w();
+        track_msg.bbox_3d_orientation.x = (*it).bbox_3d_orientation.x();
+        track_msg.bbox_3d_orientation.y = (*it).bbox_3d_orientation.y();
+        track_msg.bbox_3d_orientation.z = (*it).bbox_3d_orientation.z();
+     }
+     
+     // Track quality
+     auto P_p = (*it).current_state.P.block(0,0,3,3);
+     track_msg.position_uncertainty = sqrt(std::abs(P_p.determinant()));
+     
+     track_msg.attributes = (*it).attributes;
 
-      tracks_msg.tracks.push_back(track_msg);
-   }
+     tracks_msg.tracks.push_back(track_msg);
+  }
 
-   all_poses_pub_->publish(pose_array);
-   all_tracks_pub_->publish(tracks_msg);
+  all_poses_pub_->publish(pose_array);
+  all_tracks_pub_->publish(tracks_msg);
 }
 
 void TrackerROS::filterLoop(void)
 {
-   if(kf_tracker_->debug_)
-      RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
+    if(kf_tracker_->debug_)
+        RCLCPP_INFO(this->get_logger(), "[TrackerROS::filterLoop] inside filterLoop...");
 
-   kf_tracker_->filterLoop(this->now().seconds());
+    // Determine current time based on mode
+    double current_time;
 
-   // Publish all available tracks
-   publishAllTracks();
+    current_time = this->now().seconds();
+    
+    // Safety check: don't propagate backwards in time
+    if (latest_measurement_time_ > 0.0 && current_time < latest_measurement_time_) {
+        if(kf_tracker_->debug_) {
+            RCLCPP_WARN(this->get_logger(), 
+                       "[filterLoop] Current time (%f) is behind latest measurement (%f). Using measurement time.", 
+                       current_time, latest_measurement_time_);
+        }
+        current_time = latest_measurement_time_;
+    }
 
-   // Publish state estimates of good tracks
-   publishCertainTracks();
+    // Run the filter loop with proper current time
+    kf_tracker_->filterLoop(current_time);
+
+    // Publish tracks
+    publishAllTracks();
+    publishCertainTracks();
 }
+
 
 void TrackerROS::paramsTimerCallback()
 {
-   // Update model-specific parameters
-   if (config_.model_type == CONSTANT_VELOCITY) {
-      // Check if any key parameters have changed
-      double sigma_a = this->get_parameter("sigma_a").as_double();
-      if (sigma_a != config_.sigma_a) {
-         config_.sigma_a = sigma_a;
-         kf_tracker_->sigma_a_ = sigma_a;
-         ConstantVelModel* model = static_cast<ConstantVelModel*>(kf_tracker_->kf_model_);
-         model->setSigmaA(sigma_a);
-      }
+  // Update model-specific parameters
+  if (config_.model_type == CONSTANT_VELOCITY) {
+     // Check if any key parameters have changed
+     double sigma_a = this->get_parameter("sigma_a").as_double();
+     if (sigma_a != config_.sigma_a) {
+        config_.sigma_a = sigma_a;
+        kf_tracker_->sigma_a_ = sigma_a;
+        ConstantVelModel* model = static_cast<ConstantVelModel*>(kf_tracker_->kf_model_);
+        model->setSigmaA(sigma_a);
+     }
+  }
+  else if (config_.model_type == CONSTANT_ACCELERATION) {
+     // Check if any key parameters have changed
+     double sigma_j = this->get_parameter("sigma_j").as_double();
+     if (sigma_j != config_.sigma_j) {
+        config_.sigma_j = sigma_j;
+        kf_tracker_->sigma_j_ = sigma_j;
+        ConstantAccelModel* model = static_cast<ConstantAccelModel*>(kf_tracker_->kf_model_);
+        model->setSigmaJ(sigma_j);
+     }
    }
-   else if (config_.model_type == CONSTANT_ACCELERATION) {
-      // Check if any key parameters have changed
-      double sigma_j = this->get_parameter("sigma_j").as_double();
-      if (sigma_j != config_.sigma_j) {
-         config_.sigma_j = sigma_j;
-         kf_tracker_->sigma_j_ = sigma_j;
-         ConstantAccelModel* model = static_cast<ConstantAccelModel*>(kf_tracker_->kf_model_);
-         model->setSigmaJ(sigma_j);
-      }
-    }
-    // Update UKF model parameters if using that model
-    else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
-        AdaptiveAccelUKF* model = static_cast<AdaptiveAccelUKF*>(kf_tracker_->kf_model_);
-        
-        // Check if any key parameters have changed
-        double jerk_std = this->get_parameter("jerk_std").as_double();
-        if (jerk_std != config_.jerk_std) {
-            config_.jerk_std = jerk_std;
-            model->setJerkStd(jerk_std);
-        }
-        
-        double adaptive_threshold = this->get_parameter("adaptive_threshold").as_double();
-        if (adaptive_threshold != config_.adaptive_threshold) {
-            config_.adaptive_threshold = adaptive_threshold;
-            model->setAdaptiveThreshold(adaptive_threshold);
-        }
-        
-        double adaptive_decay = this->get_parameter("adaptive_decay").as_double();
-        if (adaptive_decay != config_.adaptive_decay) {
-            config_.adaptive_decay = adaptive_decay;
-            model->setAdaptiveDecay(adaptive_decay);
-        }
-    }
-   
-   // Update R matrix from individual components if they're set
-   double r_diag_x = this->get_parameter("r_diag_x").as_double();
-   double r_diag_y = this->get_parameter("r_diag_y").as_double();
-   double r_diag_z = this->get_parameter("r_diag_z").as_double();
-   std::vector<double> r_diag = {r_diag_x, r_diag_y, r_diag_z};
-   
-   if (r_diag != config_.r_diag) {
-      config_.r_diag = r_diag;
-      if (!kf_tracker_->kf_model_->R(r_diag))
-         RCLCPP_ERROR(this->get_logger(), "[paramsTimerCallback] Could not set r_diag");
+   // Update UKF model parameters if using that model
+   else if (config_.model_type == ADAPTIVE_ACCEL_UKF) {
+       AdaptiveAccelUKF* model = static_cast<AdaptiveAccelUKF*>(kf_tracker_->kf_model_);
+       
+       // Check if any key parameters have changed
+       double jerk_std = this->get_parameter("jerk_std").as_double();
+       if (jerk_std != config_.jerk_std) {
+           config_.jerk_std = jerk_std;
+           model->setJerkStd(jerk_std);
+       }
+       
+       double adaptive_threshold = this->get_parameter("adaptive_threshold").as_double();
+       if (adaptive_threshold != config_.adaptive_threshold) {
+           config_.adaptive_threshold = adaptive_threshold;
+           model->setAdaptiveThreshold(adaptive_threshold);
+       }
+       
+       double adaptive_decay = this->get_parameter("adaptive_decay").as_double();
+       if (adaptive_decay != config_.adaptive_decay) {
+           config_.adaptive_decay = adaptive_decay;
+           model->setAdaptiveDecay(adaptive_decay);
+       }
    }
-   
-   // Update other tracking parameters
-   double V_max = this->get_parameter("V_max").as_double();
-   if (V_max != config_.V_max) {
-      config_.V_max = V_max;
-      kf_tracker_->V_max_ = V_max;
-   }
-   
-   double V_certain = this->get_parameter("V_certain").as_double();
-   if (V_certain != config_.V_certain) {
-      config_.V_certain = V_certain;
-      kf_tracker_->V_certain_ = V_certain;
-   }
-   
-   int N_meas = this->get_parameter("N_meas").as_int();
-   if (N_meas > 0 && N_meas != config_.N_meas) {
-      config_.N_meas = N_meas;
-      kf_tracker_->N_meas_ = N_meas;
-   }
-   
-   double l_threshold = this->get_parameter("l_threshold").as_double();
-   if (l_threshold != config_.l_threshold) {
-      config_.l_threshold = l_threshold;
-      kf_tracker_->l_threshold_ = l_threshold;
-   }
-   bool do_update_step = this->get_parameter("do_kf_update_step").as_bool();
-   if (do_update_step != config_.do_update_step) {
-      config_.do_update_step = do_update_step;
-      kf_tracker_->do_update_step_ = do_update_step;
-   }
-   
-   double track_measurement_timeout = this->get_parameter("track_measurement_timeout").as_double();
-   if (track_measurement_timeout != config_.track_measurement_timeout) {
-      config_.track_measurement_timeout = track_measurement_timeout;
-      kf_tracker_->track_measurement_timeout_ = track_measurement_timeout;
-   }
-   
-   bool use_track_id = this->get_parameter("use_track_id").as_bool();
-   if (use_track_id != config_.use_track_id) {
-      config_.use_track_id = use_track_id;
-      kf_tracker_->use_track_id_ = use_track_id;
-   }
+  
+  // Update R matrix from individual components if they're set
+  double r_diag_x = this->get_parameter("r_diag_x").as_double();
+  double r_diag_y = this->get_parameter("r_diag_y").as_double();
+  double r_diag_z = this->get_parameter("r_diag_z").as_double();
+  std::vector<double> r_diag = {r_diag_x, r_diag_y, r_diag_z};
+  
+  if (r_diag != config_.r_diag) {
+     config_.r_diag = r_diag;
+     if (!kf_tracker_->kf_model_->R(r_diag))
+        RCLCPP_ERROR(this->get_logger(), "[paramsTimerCallback] Could not set r_diag");
+  }
+  
+  // Update other tracking parameters
+  double V_max = this->get_parameter("V_max").as_double();
+  if (V_max != config_.V_max) {
+     config_.V_max = V_max;
+     kf_tracker_->V_max_ = V_max;
+  }
+  
+  double V_certain = this->get_parameter("V_certain").as_double();
+  if (V_certain != config_.V_certain) {
+     config_.V_certain = V_certain;
+     kf_tracker_->V_certain_ = V_certain;
+  }
+  
+  int N_meas = this->get_parameter("N_meas").as_int();
+  if (N_meas > 0 && N_meas != config_.N_meas) {
+     config_.N_meas = N_meas;
+     kf_tracker_->N_meas_ = N_meas;
+  }
+  
+  double l_threshold = this->get_parameter("l_threshold").as_double();
+  if (l_threshold != config_.l_threshold) {
+     config_.l_threshold = l_threshold;
+     kf_tracker_->l_threshold_ = l_threshold;
+  }
+  bool do_update_step = this->get_parameter("do_kf_update_step").as_bool();
+  if (do_update_step != config_.do_update_step) {
+     config_.do_update_step = do_update_step;
+     kf_tracker_->do_update_step_ = do_update_step;
+  }
+  
+  double track_measurement_timeout = this->get_parameter("track_measurement_timeout").as_double();
+  if (track_measurement_timeout != config_.track_measurement_timeout) {
+     config_.track_measurement_timeout = track_measurement_timeout;
+     kf_tracker_->track_measurement_timeout_ = track_measurement_timeout;
+  }
+  
+  bool use_track_id = this->get_parameter("use_track_id").as_bool();
+  if (use_track_id != config_.use_track_id) {
+     config_.use_track_id = use_track_id;
+     kf_tracker_->use_track_id_ = use_track_id;
+  }
 }
