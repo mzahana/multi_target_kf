@@ -15,6 +15,10 @@ private:
     Eigen::VectorXd jerk_variance_; /* 3D vector for jerk variances */
     double sigma_j_, sigma_p_, sigma_v_, sigma_a_; /* Standard deviations for jerk, position, velocity, acceleration */
 
+    /* Log-storm suppression state for the "dt <= 0" warning on the
+     * per-iteration path. Logging only -- see MotionModel::DtWarnState. */
+    DtWarnState predictx_dt_warn_;
+
 public:
     /* Constructor */
     ConstantAccelModel() : sigma_j_(0.0), sigma_p_(0.0), sigma_v_(0.0), sigma_a_(0.0) {
@@ -349,9 +353,10 @@ public:
         if (debug_) printf("[ConstAccel::predictX] Predicting x\n");
         
         if (dt <= 0) {
-            printf("WARN [ConstAccel::predictX] dt = %f <= 0. Returning same state\n", dt);
+            reportNonPositiveDt(predictx_dt_warn_, "ConstAccel::predictX", dt);
             return s;
         }
+        clearNonPositiveDt(predictx_dt_warn_, "ConstAccel::predictX");
         
         if (debug_) printf("[ConstAccel::predictX] det(P) of current state: %f\n", s.P.determinant());
         

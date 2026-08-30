@@ -43,6 +43,11 @@ private:
     // State parameters
     double sigma_p_, sigma_v_, sigma_a_; /* Initial state uncertainties */
 
+    /* Log-storm suppression state for the "dt <= 0" warning on the
+     * per-iteration path. Logging only -- see MotionModel::DtWarnState. */
+    DtWarnState predictx_dt_warn_;
+    DtWarnState f_dt_warn_;  /* f() runs once per SIGMA POINT -- the worst of the four sites */
+
 public:
     /* Constructor */
     AdaptiveAccelUKF() : 
@@ -352,9 +357,10 @@ public:
         if (debug_) printf("[AdaptiveAccelUKF::f] Calculating f\n");
         
         if (dt <= 0) {
-            printf("[AdaptiveAccelUKF::f] dt is <= 0. Returning same x\n");
+            reportNonPositiveDt(f_dt_warn_, "AdaptiveAccelUKF::f", dt);
             return x;
         }
+        clearNonPositiveDt(f_dt_warn_, "AdaptiveAccelUKF::f");
         
         Eigen::VectorXd x_next = Eigen::VectorXd::Zero(NUM_STATES);
         
@@ -582,9 +588,10 @@ public:
         if (debug_) printf("[AdaptiveAccelUKF::predictX] Predicting x\n");
         
         if (dt <= 0) {
-            printf("WARN [AdaptiveAccelUKF::predictX] dt = %f <= 0. Returning same state\n", dt);
+            reportNonPositiveDt(predictx_dt_warn_, "AdaptiveAccelUKF::predictX", dt);
             return s;
         }
+        clearNonPositiveDt(predictx_dt_warn_, "AdaptiveAccelUKF::predictX");
         
         if (debug_) printf("[AdaptiveAccelUKF::predictX] det(P) of current state: %f\n", s.P.determinant());
         
