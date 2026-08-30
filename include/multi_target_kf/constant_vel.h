@@ -45,6 +45,10 @@ private:
     Eigen::VectorXd acc_variance_; /* 3D vector for acceleration variances */
     double sigma_a_, sigma_p_, sigma_v_;
 
+    /* Log-storm suppression state for the "dt <= 0" warning on the
+     * per-iteration path. Logging only -- see MotionModel::DtWarnState. */
+    DtWarnState predictx_dt_warn_;
+
 public:
     /* Constructor */
     ConstantVelModel() : sigma_a_(0.0), sigma_p_(0.0), sigma_v_(0.0) {
@@ -349,9 +353,10 @@ public:
         if (debug_) printf("[ConstVel::predictX] Predicting x\n");
         
         if (dt <= 0) {
-            printf("WARN [ConstVel::predictX] dt = %f <= 0. Returning same state\n", dt);
+            reportNonPositiveDt(predictx_dt_warn_, "ConstVel::predictX", dt);
             return s;
         }
+        clearNonPositiveDt(predictx_dt_warn_, "ConstVel::predictX");
         
         if (debug_) printf("[ConstVel::predictX] det(P) of current state: %f\n", s.P.determinant());
         
